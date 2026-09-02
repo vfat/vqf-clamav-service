@@ -1,8 +1,8 @@
 # TDD Overview — `clamav-service`
 
 > **Active Policy:** `TDD: Enabled`  
-> **Last Updated:** 2026-09-02 19:22  
-> **Execution Status:** 8/8 Initial Targets Completed (`100% GREEN`)
+> **Last Updated:** 2026-09-02 19:50  
+> **Execution Status:** 9/9 Targets Completed (`100% GREEN`)
 
 ---
 
@@ -18,6 +18,7 @@
 | **`TDD-006`** | `internal/quarantine` | Quarantine Vault Storage & Restore (SHA256 Whitelist) | 🟢 **GREEN** | `internal/quarantine/vault_test.go` | `internal/quarantine/vault.go` | `PASS (0.02s)` |
 | **`TDD-007`** | `internal/alert` | Multi-Channel Notifier & Anti-Spam Throttling | 🟢 **GREEN** | `internal/alert/notifier_test.go` | `internal/alert/notifier.go` | `PASS (0.00s)` |
 | **`TDD-008`** | `internal/api` | HTTP REST API Gateway, Routing & JSON Contract | 🟢 **GREEN** | `internal/api/handler_test.go` | `internal/api/server.go` | `PASS (0.07s)` |
+| **`TDD-009`** | `internal/scanner` | Archive Inspection & Zip-Bomb Decompression Limiter | 🟢 **GREEN** | `internal/scanner/archive_test.go` | `internal/scanner/archive.go` | `PASS (0.01s)` |
 
 ---
 
@@ -25,18 +26,11 @@
 
 ```
 ok      github.com/vfat/vqf-clamav-service/internal/alert       0.004s
-ok      github.com/vfat/vqf-clamav-service/internal/api         0.075s
+ok      github.com/vfat/vqf-clamav-service/internal/api         0.126s
 ok      github.com/vfat/vqf-clamav-service/internal/clamd       0.007s
 ok      github.com/vfat/vqf-clamav-service/internal/crypto      0.006s
 ok      github.com/vfat/vqf-clamav-service/internal/quarantine  0.023s
 ok      github.com/vfat/vqf-clamav-service/internal/ratelimit   0.002s
+ok      github.com/vfat/vqf-clamav-service/internal/scanner     0.011s
 ok      github.com/vfat/vqf-clamav-service/internal/storage     0.064s
 ```
-
----
-
-## 3. Next TDD Cycle Targets (Backlog / Future Enhancements)
-
-- `TDD-009`: `internal/scanner/archive` (Password dictionary cracking & zip-bomb decompression limiter).
-- `TDD-010`: `internal/storage/exporter` (High-throughput streaming CSV/JSON export worker).
-- `TDD-011`: `web/ui` (Embedded SPA Static Asset Server & Admin Dashboard).

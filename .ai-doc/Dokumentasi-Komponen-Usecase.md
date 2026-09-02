@@ -119,11 +119,13 @@ Use case yang terverifikasi:
 - ✅ `UC-SCAN-02: Raw Binary Stream Scan` (Active)
 - ⏳ `UC-SCAN-03: Remote URL / Presigned S3 Scan` (PLANNED)
 - ⏳ `UC-SCAN-04: Submit Async Scan Job & Webhook` (PLANNED)
-- ⏳ `UC-SCAN-05: Inspect Password-Protected Archive` (PLANNED)
+- ✅ `UC-SCAN-05: Inspect Password-Protected Archive & Zip-Bomb` (Active)
 
 Bukti kode:
 - [`internal/clamd/client.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/clamd/client.go)
 - [`internal/clamd/client_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/clamd/client_test.go)
+- [`internal/scanner/archive.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/scanner/archive.go)
+- [`internal/scanner/archive_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/scanner/archive_test.go)
 - [`internal/api/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/server.go#L108-L230)
 
 Implementasi:
