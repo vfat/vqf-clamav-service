@@ -1,104 +1,114 @@
-# Discussion Summary — Arsitektur & Spesifikasi Inti `clamav-service`
+# Discussion Summary — Arsitektur & Spesifikasi Lengkap `clamav-service`
 
 | Field | Value |
 |-------|-------|
 | **Sesi** | Perancangan Arsitektur, Fitur, & Spesifikasi `clamav-service` |
 | **Area** | Feature / Greenfield Architecture Design |
-| **Sub-Topik** | Core Scanning Engine, Quarantine System, Containerization, & Administration |
+| **Sub-Topik** | Core Scanning Engine, Quarantine System, Containerization, Alerts, Rate Limiting, Audit, & Process Supervision |
 | **Tanggal** | 2026-09-02 |
-| **Kategori** | Ideation, Solution Architecture, & Reliability Planning |
-| **Teknik** | First Principles, Possibility Mapping, Comparative Trade-off, Lifecycle State Modeling |
+| **Kategori** | Ideation, Solution Architecture, Reliability, & Security Engineering |
+| **Teknik** | First Principles, Possibility Mapping, Comparative Trade-off, Lifecycle State Modeling, Error Contract Standardization |
 | **Peserta** | User, Sherin ✋, Melon 🏗️, Sultan ⚙️, Nindi 🔬, Lugi 📊, Bernadya ✨ |
-| **Jumlah Ide** | 28 ide terpetakan |
+| **Jumlah Ide** | 28 ide terpetakan & disepakati |
 
 ---
 
 ## Konteks
-Diskusi awal greenfield planning untuk membangun `clamav-service` sebagai layanan antivirus/malware scanner yang modern, ringan, berkinerja tinggi, dan mudah diintegrasikan oleh berbagai aplikasi pengirim file. Diskusi berfokus pada penentuan identitas sistem, protokol komunikasi, mekanisme penanganan file terinfeksi (karantina & restore), efisiensi resource VPS, serta komponen pendukung (Web UI, SQLite DB, Config, dan Enkripsi).
+Sesi brainstorming greenfield komprehensif bersama Full Team untuk merancang arsitektur, spesifikasi, dan detail teknis `clamav-service`. Diskusi mencakup seluruh aspek mulai dari engine scanning streaming, proteksi memori VPS, sistem karantina, antarmuka Web UI, database SQLite WAL, sistem notifikasi Telegram/Discord/Email, otomatisasi enkripsi key, pembatasan rate limit, audit logging & auto-purge retensi, pengawasan proses container Go, hingga kontrak response JSON.
 
 ---
 
-## Ide yang Teridentifikasi
+## Rincian Ide yang Teridentifikasi
 
 ### 1. Unified Security Inspection Layer & Blast Radius Isolation
-Memisahkan proses pemindaian malware dari backend aplikasi utama. Kerentanan scanning (seperti zip-bomb, memori overhead, crash clamd) terisolasi sepenuhnya di service ini.
+Memisahkan pemindaian antivirus ke dalam container independen agar aplikasi bisnis utama terhindar dari crash, OOM, atau serangan eksploitasi file.
 > **Sumber:** Melon 🏗️ & Nindi 🔬 | **Status:** `approved` | **Kategori:** Architecture
 
 ### 2. High-Throughput Streaming Antivirus Gateway
-Service menerima payload/stream dari HTTP body secara non-blocking dan meneruskannya via Unix Domain Socket langsung ke memory daemon `clamd` tanpa disk I/O perantara.
+Menerima raw binary / multipart stream via HTTP dan meneruskannya via Unix Domain Socket (`/tmp/clamd.sock`) langsung ke RAM daemon `clamd` tanpa disk I/O perantara.
 > **Sumber:** Sultan ⚙️ | **Status:** `approved` | **Kategori:** Backend Performance
 
 ### 3. Pluggable Security-as-a-Service (ala Stripe)
-Pengalaman integrasi pengembang (DX) yang super sederhana: Sync Direct Scan (instant verdict), Async Cloud Scan (kirim URL/presigned link + webhook callback), dan SDK/API 1-baris.
+Integrasi instan dengan model Sync Direct Scan (verdict dalam hitungan milidetik) dan Async Cloud Scan (kirim URL + webhook callback).
 > **Sumber:** Bernadya ✨ | **Status:** `approved` | **Kategori:** Product/DX
 
 ### 4. Agentless Threat Intelligence & Audit Hub
-Pencatatan telemetri scan (SHA256 fingerprint, virus signature name, duration latency, status) tanpa perlu memasang agent di host/endpoint.
+Pencatatan telemetri scan (SHA256, virus signature, latensi ms, status) tanpa perlu menginstal agent pada host/laptop.
 > **Sumber:** Lugi 📊 | **Status:** `approved` | **Kategori:** Data/Observability
 
 ### 5. Built-in Quarantine Vault dengan Safe Storage Pattern
-File terinfeksi tidak langsung dihapus melainkan disimpan di storage terisolasi (`/data/quarantine` atau S3) dengan ekstensi `.quarantine`, permission `0600`, dan scrambled/encrypted.
+Penyimpanan file terinfeksi di volume lokal `/data/quarantine/` dengan nama netral (`.quarantine`), izin ketat `0600`, dan scrambled/encrypted.
 > **Sumber:** Sultan ⚙️ & Nindi 🔬 | **Status:** `approved` | **Kategori:** Security
 
 ### 6. Dual Mode Restore & Anti Re-Quarantine Hash Whitelisting
-Mekanisme rilis file false-positive: bisa via Direct Admin Download atau Push balik ke S3 / Webhook, disertai pendaftaran SHA256 ke daftar whitelist lokal agar tidak kena karantina ulang.
+Rilis file false positive via Direct Download atau Push balik ke S3 / Webhook, disertai auto-whitelist SHA256 agar file tidak terkena karantina ulang.
 > **Sumber:** Nindi 🔬 & Melon 🏗️ | **Status:** `approved` | **Kategori:** Operational Workflow
 
 ### 7. All-in-One Single Container Deployment
-Mengemas API wrapper, `clamd`, `freshclam`, embedded UI, dan SQLite dalam 1 Docker container dengan volume persisten `/data`. Menghemat RAM, latensi Unix socket 0 ms, dan setup 1-line run.
+Mengemas Go API wrapper, `clamd`, `freshclam`, embedded UI, dan SQLite dalam 1 Docker container dengan volume persisten `/data`.
 > **Sumber:** Melon 🏗️ & Sultan ⚙️ | **Status:** `approved` | **Kategori:** Infrastructure
 
 ### 8. In-Process SQLite (WAL Mode) Database
-Penyimpanan metadata karantina, audit log, API keys, dan settings menggunakan SQLite. Zero extra RAM overhead, single file backup di volume `/data`.
+Penyimpanan metadata karantina, log audit, API keys, dan settings dengan SQLite WAL mode. Zero extra RAM overhead, single file backup di `/data/clamav-service.db`.
 > **Sumber:** Lugi 📊 | **Status:** `approved` | **Kategori:** Database
 
 ### 9. AES-256-GCM Field-Level Encryption & Key Hashing
-Enkripsi simetris untuk kredensial sensitif di database menggunakan master key dari Environment Variable, dan one-way hashing untuk API Keys.
+Enkripsi simetris untuk kredensial sensitif di database menggunakan master key dari Environment Variable, dan salted hash untuk API Keys.
 > **Sumber:** Nindi 🔬 | **Status:** `approved` | **Kategori:** Security
 
----
+### 10. Zip-Bomb Limits & Archive Inspection Safeguards
+Membatasi rekursi unzip maks 5 level, maks 1.000 file, maks 250 MB ekstraksi memori, dan batas timeout 30 detik.
+> **Sumber:** Nindi 🔬 | **Status:** `approved` | **Kategori:** Resilience
 
-## Pembahasan & Keputusan
+### 11. Password-Protected Archive Handling (ala VirusTotal)
+Return status `UNSCANNABLE (PASSWORD_PROTECTED)`. Mendukung input `archive_password` di API dan auto-try kamus password malware umum.
+> **Sumber:** Melon 🏗️ & Lugi 📊 | **Status:** `approved` | **Kategori:** Security
 
-### Pembahasan 1: gRPC vs HTTP/REST
-- **Analisis:** gRPC sangat cepat untuk internal binary RPC, tetapi HTTP/REST lebih universal untuk multipart upload dan mudah dikonsumsi oleh cURL, frontend, webhook, dan berbagai framework.
-- **Keputusan:** Menggunakan **HTTP REST API** dengan streaming handler sebagai antarmuka utama fase 1, dirancang dengan core engine modular yang siap menerima gRPC adapter di masa depan.
+### 12. Multi-Channel Alert Manager (Telegram, Discord, Email)
+Pengiriman notifikasi otomatis saat malware terdeteksi, dengan auto-detect kredensial dan toggle switch ON/OFF di Web UI.
+> **Sumber:** Bernadya ✨ & Sultan ⚙️ | **Status:** `approved` | **Kategori:** Alerting
 
-### Pembahasan 2: Karantina & Ketergantungan Storage
-- **Analisis:** Menggunakan vendor SaaS 3rd party atau mewajibkan MinIO terpisah akan membebani biaya atau RAM VPS.
-- **Keputusan:** Menerapkan **Pluggable Storage Driver**. Default menggunakan **Local Volume Terisolasi** (zero extra dependency/RAM), dengan opsi konfigurasi environment variable ke S3/MinIO eksternal bila diperlukan.
+### 13. Alert Throttling & Flood Control
+Proteksi anti-spam pesan saat lonjakan serangan malware massal dengan mengirimkan batch summary digest jika > 5 malware/menit.
+> **Sumber:** Nindi 🔬 | **Status:** `approved` | **Kategori:** Alerting
 
-### Pembahasan 3: Sizing VPS & Dampak Memori
-- **Analisis:** ClamAV memuat ~8.5 juta signature ke RAM, membutuhkan footprint ~1.1–1.4 GB RAM idle dan spike hingga ~2.0 GB saat reload freshclam harian.
-- **Keputusan:** VPS minimum 2 GB RAM + 2 GB Swap (Direkomendasikan: 2 vCPU / 4 GB RAM). Hindari menjalankan server MinIO di VPS yang sama.
+### 14. Zero-Touch Encryption Key Generation
+Sistem otomatis men-generate key dan langsung menuliskan `ENCRYPTION_KEY=...` ke file `.env` saat boot/init pertama. User menyalin key hanya untuk keperluan backup darurat.
+> **Sumber:** User, Sultan ⚙️, & Melon 🏗️ | **Status:** `approved` | **Kategori:** Security/DX
 
-### Pembahasan 4: Embedded Admin Dashboard & Autentikasi
-- **Analisis:** Antarmuka web mandiri dibutuhkan untuk monitoring status daemon, uji coba scan drag-and-drop, manajemen karantina, dan API keys.
-- **Keputusan:** Menyertakan **Embedded SPA Admin UI** yang disajikan langsung oleh backend binary, diproteksi Session/JWT Cookie dengan Rate Limiter.
+### 15. 2-Tier Rate Limiting & API Key Policy
+Proteksi server global di `.env` (misal 50 RPS) + aturan spesifik per API Key di UI (RPM, daily quota, IP whitelist, permissions) dengan in-memory token bucket.
+> **Sumber:** Sultan ⚙️ & Lugi 📊 | **Status:** `approved` | **Kategori:** Traffic Management
+
+### 16. Short-Cycle Audit & Quarantine Retention
+Default retensi log audit scan = 3 hari, default retensi file karantina = 7 hari, dilengkapi auto-vacuum SQLite mingguan.
+> **Sumber:** User, Lugi 📊, & Sultan ⚙️ | **Status:** `approved` | **Kategori:** Data Governance
+
+### 17. Streaming CSV & JSON Audit Exporter
+Download laporan riwayat pemindaian dengan filter fleksibel via Web UI dan REST API secara streaming tanpa lonjakan RAM.
+> **Sumber:** Bernadya ✨ & Lugi 📊 | **Status:** `approved` | **Kategori:** Compliance
+
+### 18. Go Native Process Supervisor (PID 1)
+Binary Go bertindak sebagai master entrypoint yang men-spawn, memantau, dan me-restart `clamd` dan `freshclam`, serta menangani graceful shutdown OS signal.
+> **Sumber:** Sultan ⚙️ & Melon 🏗️ | **Status:** `approved` | **Kategori:** Process Management
+
+### 19. Standarisasi JSON Response & Error Contracts
+Struktur konsisten untuk balasan `CLEAN`, `INFECTED`, `SUSPICIOUS`, `UNSCANNABLE`, `ACCEPTED`, dan inventaris error code standar.
+> **Sumber:** Bernadya ✨ & Sultan ⚙️ | **Status:** `approved` | **Kategori:** API Design
 
 ---
 
 ## Keputusan Final
 
-- ✅ **Protokol:** HTTP/REST API (Sync, Chunked Stream, Async Webhook).
-- ✅ **Deployment:** All-in-One Single Docker Container (ClamAV daemon + Freshclam + API + Web UI + SQLite).
-- ✅ **Karantina:** Built-in Quarantine Vault di Local Volume `/data/quarantine/` dengan TTL auto-purge dan fitur Restore + SHA256 Whitelisting.
+- ✅ **Bahasa & Runtime:** **Go (Golang)** sebagai API Wrapper & Process Supervisor (RAM ~15–30 MB).
+- ✅ **Engine Antivirus:** ClamAV Daemon (`clamd`) via Unix Domain Socket + Freshclam background updater.
+- ✅ **Packaging:** All-in-One Single Docker Container (Alpine-based, volume `/data`).
 - ✅ **Database:** SQLite (WAL Mode) di `/data/clamav-service.db`.
-- ✅ **Keamanan:** AES-256-GCM field encryption, salted hash API keys, role-based access.
+- ✅ **Antarmuka:** REST API (Port 8080) + Embedded Web Admin UI (SPA).
+- ✅ **Keamanan:** AES-256-GCM field encryption, salted hash API keys, Zero-Touch key generation ke `.env`.
+- ✅ **Karantina & Restore:** Built-in Vault `/data/quarantine/`, dual restore (Download/Push), SHA256 whitelisting.
+- ✅ **Alerting:** Telegram, Discord, Email dengan Throttling Anti-Spam.
+- ✅ **Retensi:** 3 Hari Log Audit, 7 Hari Karantina.
 
 ---
-
-## Next Steps
-
-- [ ] **Penyusunan Project Overview**: Turunkan hasil kesepakatan ini ke dokumen resmi `.ai-doc/project-overview.md`.
-- [ ] **Review Arsitektur**: Finalisasi use case dan acceptance criteria bersama user setelah sesi break.
-
----
-
-## Referensi & Context
-- Skill: [ai-documentor](file:///home/ubuntu/workspace/plan/clamav-service/.agent/skills/ai-documentor/SKILL.md)
-- Minutes of Meeting: [mom-2026-09-02-clamav-service-architecture.md](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/brainstorming/mom-2026-09-02-clamav-service-architecture.md)
-- Control Plane: [.ai-doc/3p.md](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/3p.md)
-
----
-*Generated by AI Documentor — Brainstorming Add-On*
+*Generated by AI Documentor — Brainstorming Add-On (Session Completed)*
