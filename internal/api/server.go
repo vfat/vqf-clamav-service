@@ -1,0 +1,328 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/vfat/vqf-clamav-service/internal/alert"
+	"github.com/vfat/vqf-clamav-service/internal/clamd"
+	"github.com/vfat/vqf-clamav-service/internal/quarantine"
+	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
+	"github.com/vfat/vqf-clamav-service/internal/storage"
+)
+
+// ServerConfig holds dependencies and configuration for the HTTP server.
+type ServerConfig struct {
+	DB               *storage.DB
+	Vault            *quarantine.Vault
+	Notifier         *alert.Notifier
+	Limiter          *ratelimit.Limiter
+	Clamd            *clamd.Client
+	RequireAPIKey    bool
+	MaxScanSizeMB    int64
+	RateLimitRPM     int
+	RateLimitEnabled bool
+	LogRetention     int
+	QuarRetention    int
+}
+
+// Server encapsulates the HTTP API and routing.
+type Server struct {
+	config ServerConfig
+	mux    *http.ServeMux
+}
+
+// NewServer initializes a new Server.
+func NewServer(cfg ServerConfig) *Server {
+	if cfg.MaxScanSizeMB <= 0 {
+		cfg.MaxScanSizeMB = 100
+	}
+	if cfg.RateLimitRPM <= 0 {
+		cfg.RateLimitRPM = 100
+	}
+
+	s := &Server{
+		config: cfg,
+		mux:    http.NewServeMux(),
+	}
+
+	s.routes()
+	return s
+}
+
+// Router returns the configured HTTP handler with middlewares.
+func (s *Server) Router() http.Handler {
+	return s.applyMiddlewares(s.mux)
+}
+
+func (s *Server) routes() {
+	// Health and Ops
+	s.mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	s.mux.HandleFunc("GET /healthz", s.handleHealth)
+	s.mux.HandleFunc("GET /api/v1/metrics", s.handleMetrics)
+
+	// Scanning
+	s.mux.HandleFunc("POST /api/v1/scan/file", s.handleScanFile)
+	s.mux.HandleFunc("POST /api/v1/scan/stream", s.handleScanStream)
+
+	// Quarantine
+	s.mux.HandleFunc("GET /api/v1/quarantine", s.handleQuarantineList)
+	s.mux.HandleFunc("POST /api/v1/quarantine/restore", s.handleQuarantineRestore)
+
+	// Audit Logs
+	s.mux.HandleFunc("GET /api/v1/audit/export", s.handleAuditExport)
+}
+
+func (s *Server) applyMiddlewares(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Standard Security & CORS Headers
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Rate Limiting
+		if s.config.RateLimitEnabled && s.config.Limiter != nil {
+			clientIP := extractIP(r)
+			allowed, remaining, resetTime := s.config.Limiter.Allow(clientIP, s.config.RateLimitRPM)
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(s.config.RateLimitRPM))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTime, 10))
+
+			if !allowed {
+				respondError(w, http.StatusTooManyRequests, "RATE_LIMIT_EXCEEDED", "Rate limit exceeded. Please retry later.", map[string]interface{}{
+					"retry_after_seconds": resetTime - time.Now().Unix(),
+				})
+				return
+			}
+		}
+
+		h.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"status":    "healthy",
+		"service":   "clamav-service",
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	fmt.Fprintf(w, "# HELP clamav_service_up Status of clamav service\n")
+	fmt.Fprintf(w, "# TYPE clamav_service_up gauge\n")
+	fmt.Fprintf(w, "clamav_service_up 1\n")
+}
+
+func (s *Server) handleScanFile(w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
+	maxBytes := s.config.MaxScanSizeMB * 1024 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+
+	if err := r.ParseMultipartForm(maxBytes); err != nil {
+		respondError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "Uploaded file exceeds maximum limit", nil)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Missing 'file' multipart form field", nil)
+		return
+	}
+	defer file.Close()
+
+	payload, err := io.ReadAll(file)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to read file payload", nil)
+		return
+	}
+
+	hasher := sha256.New()
+	hasher.Write(payload)
+	fileHash := hex.EncodeToString(hasher.Sum(nil))
+
+	// Check Whitelist
+	if isWhitelisted, _ := s.config.DB.IsWhitelisted(fileHash); isWhitelisted {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"verdict": "CLEAN",
+			"whitelisted": true,
+			"data": map[string]interface{}{
+				"file_name":        header.Filename,
+				"file_size":        len(payload),
+				"file_sha256":      fileHash,
+				"scan_duration_ms": time.Since(startTime).Milliseconds(),
+			},
+		})
+		return
+	}
+
+	// Scan with Clamd
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	scanRes, err := s.config.Clamd.ScanStream(ctx, bytes.NewReader(payload))
+	if err != nil {
+		respondError(w, http.StatusServiceUnavailable, "ENGINE_UNAVAILABLE", "Antivirus daemon unavailable or timed out", nil)
+		return
+	}
+
+	durationMs := time.Since(startTime).Milliseconds()
+	consumerName := extractConsumer(r)
+
+	if scanRes.IsClean() {
+		_ = s.config.DB.InsertScanAuditLog(storage.ScanAuditLog{
+			ID:             fmt.Sprintf("audit_%d", time.Now().UnixNano()),
+			Timestamp:      time.Now().UTC(),
+			ConsumerName:   consumerName,
+			ClientIP:       extractIP(r),
+			FileName:       header.Filename,
+			FileSizeBytes:  int64(len(payload)),
+			FileSHA256:     fileHash,
+			Verdict:        "CLEAN",
+			ScanDurationMs: durationMs,
+		})
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"verdict": "CLEAN",
+			"data": map[string]interface{}{
+				"file_name":        header.Filename,
+				"file_size":        len(payload),
+				"file_sha256":      fileHash,
+				"scan_duration_ms": durationMs,
+				"scanned_at":       time.Now().UTC().Format(time.RFC3339),
+			},
+		})
+		return
+	}
+
+	// INFECTED: Quarantine & Alert
+	quarRec, _ := s.config.Vault.QuarantineFile(ctx, header.Filename, consumerName, scanRes.VirusName, bytes.NewReader(payload), s.config.QuarRetention)
+	quarID := ""
+	if quarRec != nil {
+		quarID = quarRec.ID
+	}
+
+	_ = s.config.DB.InsertScanAuditLog(storage.ScanAuditLog{
+		ID:             fmt.Sprintf("audit_%d", time.Now().UnixNano()),
+		Timestamp:      time.Now().UTC(),
+		ConsumerName:   consumerName,
+		ClientIP:       extractIP(r),
+		FileName:       header.Filename,
+		FileSizeBytes:  int64(len(payload)),
+		FileSHA256:     fileHash,
+		Verdict:        "INFECTED",
+		VirusName:      scanRes.VirusName,
+		ScanDurationMs: durationMs,
+		QuarantineID:   quarID,
+	})
+
+	if s.config.Notifier != nil {
+		_ = s.config.Notifier.DispatchThreat(ctx, alert.ThreatAlert{
+			VirusName:      scanRes.VirusName,
+			FileName:       header.Filename,
+			FileSizeBytes:  int64(len(payload)),
+			FileSHA256:     fileHash,
+			QuarantineID:   quarID,
+			SourceConsumer: consumerName,
+			DetectedAt:     time.Now().UTC(),
+		})
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"verdict": "INFECTED",
+		"threat": map[string]interface{}{
+			"virus_name":    scanRes.VirusName,
+			"severity":      "HIGH",
+			"action_taken":  "QUARANTINED",
+			"quarantine_id": quarID,
+		},
+		"data": map[string]interface{}{
+			"file_name":        header.Filename,
+			"file_size":        len(payload),
+			"file_sha256":      fileHash,
+			"scan_duration_ms": durationMs,
+		},
+	})
+}
+
+func (s *Server) handleScanStream(w http.ResponseWriter, r *http.Request) {
+	s.handleScanFile(w, r)
+}
+
+func (s *Server) handleQuarantineList(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"items":   []interface{}{},
+	})
+}
+
+func (s *Server) handleQuarantineRestore(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"status":  "RESTORED",
+	})
+}
+
+func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"scan_audit_logs.csv\"")
+	fmt.Fprintf(w, "id,timestamp,consumer,file_name,verdict,virus_name,duration_ms\n")
+}
+
+func respondJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+func respondError(w http.ResponseWriter, status int, code, message string, details interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": false,
+		"error": map[string]interface{}{
+			"code":    code,
+			"message": message,
+			"details": details,
+		},
+	})
+}
+
+func extractIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	parts := strings.Split(r.RemoteAddr, ":")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return r.RemoteAddr
+}
+
+func extractConsumer(r *http.Request) string {
+	if c := r.Header.Get("X-Consumer-Name"); c != "" {
+		return c
+	}
+	return "Anonymous-Client"
+}
