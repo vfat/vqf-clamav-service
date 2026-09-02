@@ -174,3 +174,17 @@
 * [x] **Pilihan Bahasa Backend API:** **Go (Golang)** — binary tunggal, super hemat RAM (~15-30 MB), native goroutine streaming.
 * [x] **Architecture Blueprint:** Approved & Locked.
 * [ ] **TDD Decision:** Konfirmasi keputusan penerapan Test-Driven Development (TDD) untuk fase implementasi.
+
+---
+
+## 11. Daftar Dokumen Lampiran
+
+Seluruh spesifikasi teknis dan rincian implementasi didokumentasikan dalam seri dokumen lampiran:
+
+1. 📄 [**`L-001: Standarisasi Kontrak JSON Response & Daftar Kode Error`**](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/lampiran/L-001-Standard-JSON-Contracts-and-Error-Codes.md)
+2. 📄 [**`L-002: Arsitektur Quarantine Vault & Mekanisme File Restore`**](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/lampiran/L-002-Quarantine-Vault-and-Restore-Mechanism.md)
+3. 📄 [**`L-003: Keamanan, Enkripsi, & Manajemen Siklus Kunci`**](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/lampiran/L-003-Security-Encryption-and-Key-Lifecycle.md)
+4. 📄 [**`L-004: Sistem Notifikasi & Integrasi Multi-Channel Alert`**](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/lampiran/L-004-Notification-and-Alerting-Channels.md)
+5. 📄 [**`L-005: Penanganan Kasus Khusus, Proteksi Zip-Bomb, & Arsip Terenkripsi`**](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/lampiran/L-005-Edge-Cases-and-Archive-Inspection.md)
+6. 📄 [**`L-006: Arsitektur Container & Supervisi Proses Go Native`**](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/lampiran/L-006-Container-Architecture-and-Process-Supervision.md)
+
