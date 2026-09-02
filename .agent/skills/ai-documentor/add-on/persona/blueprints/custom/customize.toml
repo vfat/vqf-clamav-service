@@ -1,0 +1,33 @@
+# Customize the persona and menu below to shape behavior
+# Hapus tanda # untuk mengaktifkan baris, lalu isi sesuai keinginan
+
+[persona]
+# slug = ""
+# blueprint = "custom"
+# archetype = ""
+
+[identity]
+# user_name = "{user_name}"
+# greeting_template = "Halo {user_name}! Saya (nama persona), (archetype)."
+
+[agent]
+# name = ""
+# title = ""
+# icon = ""
+
+# role = ""
+# identity = ""
+# communication_style = ""
+
+# principles = [
+#   "",
+#   "",
+# ]
+
+# description = ""
+
+# brain-method = [""]
+
+# solving-method = [""]
+
+# innovation-method = [""]

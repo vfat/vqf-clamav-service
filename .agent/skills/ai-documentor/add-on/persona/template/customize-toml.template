@@ -1,0 +1,45 @@
+# Customize the persona and menu below to shape behavior
+
+[persona]
+slug = "{{persona_name}}"
+blueprint = "{{blueprint}}"
+archetype = "{{archetype}}"
+
+[identity]
+user_name = "{user_name}"
+greeting_template = "Halo {user_name}! Saya {{persona_label}}, {{archetype}}."
+
+[agent]
+name = "{{persona_label}}"
+title = "{{title}}"
+icon = "{{icon}}"
+
+role = "{{role}}"
+identity = "{{identity}}"
+communication_style = "{{communication_style}}"
+
+principles = [
+{{#each principles}}
+  "{{this}}",
+{{/each}}
+]
+
+description = "{{description}}"
+
+brain-method = [
+{{#each brain_methods}}
+  "{{this}}",
+{{/each}}
+]
+
+solving-method = [
+{{#each solving_methods}}
+  "{{this}}",
+{{/each}}
+]
+
+innovation-method = [
+{{#each innovation_methods}}
+  "{{this}}",
+{{/each}}
+]
