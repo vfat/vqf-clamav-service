@@ -1,8 +1,8 @@
 # Dokumentasi Fitur — `clamav-service`
 
-> **Status Dokumen:** Approved Feature Map  
-> **Tanggal Pembuatan:** 2026-09-02  
-> **Scope:** Greenfield Feature Inventory & Mapping
+> **Status Dokumen:** Active (Evidence-Backed)  
+> **Last Updated:** 2026-09-02 19:38  
+> **Scope:** Greenfield Feature Inventory & Live Codebase Implementation
 
 ---
 
@@ -14,58 +14,46 @@
 
 ## 2. Matriks Inventaris Fitur
 
-| Kode Fitur | Nama Fitur | Kategori | Status | Komponen Penanggung Jawab | Deskripsi Singkat |
+| Kode Fitur | Nama Fitur | Kategori | Status | Komponen Penanggung Jawab | Bukti Implementasi & Test |
 |---|---|---|---|---|---|
-| **FEAT-01** | Core Synchronous File Scan | Scanning | `PLANNED` (MVP) | `ScanController`, `ClamdBridge` | Pemindaian langsung via multipart file upload dengan instant verdict (`CLEAN`, `INFECTED`). |
-| **FEAT-02** | Raw Binary Chunked Stream Scan | Scanning | `PLANNED` (MVP) | `ScanController`, `ClamdBridge` | Pemindaian raw binary stream tanpa multipart overhead via protokol socket `INSTREAM`. |
-| **FEAT-03** | Remote URL / Cloud Object Scan | Scanning | `PLANNED` (MVP) | `ScanController`, `ClamdBridge` | Mengunduh stream dari URL publik / presigned S3 URL dan memindainya secara on-the-fly. |
-| **FEAT-04** | Async Scan Job & Webhook Callback | Async Queue | `PLANNED` (MVP) | `ScanController`, `WebhookDispatcher` | Menerima job scan (return `202 Accepted` + `job_id`) dan menembakkan hasil ke URL callback. |
-| **FEAT-05** | Password-Protected Archive Inspection | Resilience | `PLANNED` (MVP) | `ScanController`, `ArchiveInspector` | Inspeksi arsip terenkripsi dengan parameter `archive_password`, kamus password, atau verdict `UNSCANNABLE`. |
-| **FEAT-06** | Zip-Bomb & Decompression Limiter | Resilience | `PLANNED` (MVP) | `ScanController`, `ArchiveInspector` | Proteksi DoS dengan membatasi rekursi (5 level), jumlah file (1.000), dan batas ekstrak (250 MB). |
-| **FEAT-07** | Built-in Quarantine Vault | Quarantine | `PLANNED` (MVP) | `QuarantineManager` | Isolasi file terinfeksi ke folder `/data/quarantine/` dengan nama netral, izin `0600`, dan scrambled biner. |
-| **FEAT-08** | Dual Mode File Restore & Whitelisting | Quarantine | `PLANNED` (MVP) | `QuarantineManager` | Pemulihan file false-positive (Direct Admin Download / S3 Push) dan auto-whitelist SHA256. |
-| **FEAT-09** | Short-Cycle Auto-Purge & Retention | Data Lifecycle | `PLANNED` (MVP) | `SQLiteManager`, `CleanerWorker` | Pembersihan otomatis file karantina (7 hari) dan log audit (3 hari) dengan auto-vacuum SQLite. |
-| **FEAT-10** | Multi-Channel Alerting (Telegram/Discord/Email) | Alerting | `PLANNED` (MVP) | `AlertDispatcher` | Pengiriman notifikasi seketika saat terdeteksi malware ke channel Telegram, Discord, dan Email. |
-| **FEAT-11** | Alert Flood Throttling & Anti-Spam | Alerting | `PLANNED` (MVP) | `AlertDispatcher` | Penggabungan notifikasi ke Batch Digest Summary saat lonjakan serangan > 5 deteksi/menit. |
-| **FEAT-12** | 2-Tier Rate Limiting & API Key Policy | Traffic Control | `PLANNED` (MVP) | `AuthRateLimiter` | Proteksi server global (`.env`) + aturan granular RPM, kuota, dan IP whitelist per API Key. |
-| **FEAT-13** | Zero-Touch Master Key & AES-256-GCM | Security | `PLANNED` (MVP) | `CryptoKeygen`, `CryptoAES` | Otomatisasi generate key ke `.env` saat first boot dan enkripsi field kredensial di SQLite. |
-| **FEAT-14** | Embedded Web Admin Dashboard (SPA) | Management | `PLANNED` (MVP) | `AdminWebUI`, `APIGateway` | Web dashboard mandiri untuk monitor daemon, drag-and-drop test scan, inspeksi vault, dan export data. |
-| **FEAT-15** | Streaming Audit Log Exporter (CSV/JSON) | Compliance | `PLANNED` (MVP) | `SQLiteManager`, `APIGateway` | Download riwayat log audit dengan filter fleksibel secara streaming tanpa membebani memori server. |
-| **FEAT-16** | Go Native Process Supervisor (PID 1) | Operations | `PLANNED` (MVP) | `ProcessSupervisor` | Pengawasan proses `clamd` & `freshclam`, auto-restart, graceful shutdown, dan zero-downtime signature reload. |
-| **FEAT-17** | Health & Readiness Probe / Metrics | Observability | `PLANNED` (MVP) | `APIGateway`, `MetricsExporter` | Endpoint `/healthz` dan `/metrics` untuk liveness/readiness probe Kubernetes dan Prometheus. |
+| **FEAT-01** | Core Synchronous File Scan | Scanning | ✅ **ACTIVE** | `api.Server`, `clamd.Client` | [`internal/api/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/server.go#L108-L230), [`internal/api/handler_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/handler_test.go) |
+| **FEAT-02** | Raw Binary Chunked Stream Scan | Scanning | ✅ **ACTIVE** | `api.Server`, `clamd.Client` | [`internal/clamd/client.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/clamd/client.go#L104-L162), [`internal/clamd/client_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/clamd/client_test.go) |
+| **FEAT-03** | Remote URL / Cloud Object Scan | Scanning | ⏳ `PLANNED` | `api.Server`, `clamd.Client` | Backlog enhancement |
+| **FEAT-04** | Async Scan Job & Webhook Callback | Async Queue | ⏳ `PLANNED` | `api.Server`, `alert.Notifier` | Backlog enhancement |
+| **FEAT-05** | Password-Protected Archive Inspection | Resilience | ⏳ `PLANNED` | `scanner.ArchiveInspector` | Backlog enhancement (`TDD-009`) |
+| **FEAT-06** | Zip-Bomb & Decompression Limiter | Resilience | ⏳ `PLANNED` | `scanner.ArchiveInspector` | Backlog enhancement (`TDD-009`) |
+| **FEAT-07** | Built-in Quarantine Vault | Quarantine | ✅ **ACTIVE** | `quarantine.Vault` | [`internal/quarantine/vault.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/quarantine/vault.go#L35-L84), [`internal/quarantine/vault_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/quarantine/vault_test.go) |
+| **FEAT-08** | Dual Mode File Restore & Whitelisting | Quarantine | ✅ **ACTIVE** | `quarantine.Vault`, `storage.DB` | [`internal/quarantine/vault.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/quarantine/vault.go#L86-L119), [`internal/storage/sqlite.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/storage/sqlite.go#L254-L290) |
+| **FEAT-09** | Short-Cycle Auto-Purge & Retention | Data Lifecycle | ✅ **ACTIVE** | `storage.DB`, `cmd/server/main.go` | [`internal/storage/sqlite.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/storage/sqlite.go#L210-L218), [`cmd/server/main.go`](file:///home/ubuntu/workspace/plan/clamav-service/cmd/server/main.go#L119-L135) |
+| **FEAT-10** | Multi-Channel Alerting (Telegram/Discord/Email) | Alerting | ✅ **ACTIVE** | `alert.Notifier` | [`internal/alert/notifier.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/alert/notifier.go#L53-L162), [`internal/alert/notifier_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/alert/notifier_test.go) |
+| **FEAT-11** | Alert Flood Throttling & Anti-Spam | Alerting | ✅ **ACTIVE** | `alert.Notifier` | [`internal/alert/notifier.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/alert/notifier.go#L70-L93), [`internal/alert/notifier_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/alert/notifier_test.go#L59-L90) |
+| **FEAT-12** | 2-Tier Rate Limiting & Server Protection | Traffic Control | ✅ **ACTIVE** | `ratelimit.Limiter`, `api.Server` | [`internal/ratelimit/limiter.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/ratelimit/limiter.go#L27-L86), [`internal/ratelimit/limiter_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/ratelimit/limiter_test.go) |
+| **FEAT-13** | Zero-Touch Master Key & AES-256-GCM | Security | ✅ **ACTIVE** | `crypto.Keygen`, `crypto.AES` | [`internal/crypto/keygen.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/crypto/keygen.go), [`internal/crypto/aes.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/crypto/aes.go) |
+| **FEAT-14** | Embedded Web Admin Dashboard (SPA) | Management | ⏳ `IN-PROGRESS` | `web/ui`, `api.Server` | Next target step |
+| **FEAT-15** | Streaming Audit Log Exporter (CSV/JSON) | Compliance | ✅ **ACTIVE** | `api.Server`, `storage.DB` | [`internal/api/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/server.go#L248-L253), [`internal/storage/sqlite.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/storage/sqlite.go#L149-L208) |
+| **FEAT-16** | Go Native Process Supervisor (PID 1) | Operations | ✅ **ACTIVE** | `cmd/server/main.go` | [`cmd/server/main.go`](file:///home/ubuntu/workspace/plan/clamav-service/cmd/server/main.go#L101-L117) |
+| **FEAT-17** | Health & Readiness Probe / Metrics | Observability | ✅ **ACTIVE** | `api.Server` | [`internal/api/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/server.go#L95-L106) |
 
 ---
 
-## 3. Rincian Fitur Utama
+## 3. Rincian Implementasi Fitur Aktif
 
-### 3.1. Fitur Core Scanning & Resilience (FEAT-01 s/d FEAT-06)
-* **Kebutuhan Bisnis:** Memberikan verdict pemindaian file yang cepat (<100ms) tanpa risiko crash engine akibat serangan *decompression bomb* atau arsip terenkripsi.
-* **Integrasi Teknis:**
-  - Mengalirkan byte stream via Unix Domain Socket `/tmp/clamd.sock` menggunakan perintah ClamAV `zINSTREAM\0`.
-  - Mengembalikan struktur data JSON standar dengan hash SHA-256, latensi scan, dan versi signature.
-  - Memverifikasi status arsip ber-password dan mengembalikan status `UNSCANNABLE (PASSWORD_PROTECTED)` jika arsip terkunci.
+### 3.1. Core Synchronous & Stream Scanning (`FEAT-01`, `FEAT-02`)
+* Menerima payload file multipart melalui `POST /api/v1/scan/file` atau stream biner langsung melalui `POST /api/v1/scan/stream`.
+* Mengalirkan byte stream via Unix Domain Socket `/var/run/clamav/clamd.ctl` menggunakan protokol ClamAV `zINSTREAM\0` secara chunked (64 KB).
+* Mengembalikan struktur JSON standar: `verdict` (`CLEAN` / `INFECTED`), `threat` details, `file_sha256`, dan `scan_duration_ms`.
 
-### 3.2. Fitur Quarantine Vault & Restore (FEAT-07 s/d FEAT-09)
-* **Kebutuhan Bisnis:** Mencegah penyebaran file malware ke sistem lain tanpa menghilangkan bukti atau dokumen penting jika terjadi *false positive*.
-* **Integrasi Teknis:**
-  - File malware dinetralkan (format `Q-YYYYMMDD-ULID.quarantine`) dengan izin akses `0600`.
-  - Restore manual: Admin mendownload file asli yang telah di-descramble.
-  - Restore otomatis: Service mengunggah file ke target S3 dan menembak webhook event.
-  - Hash SHA-256 file didaftarkan ke tabel `whitelist_signatures` agar tidak terkena karantina ulang.
-  - Pembersihan otomatis berbasis TTL: 7 hari untuk file karantina dan 3 hari untuk log audit.
+### 3.2. Quarantine Vault & Safe Isolation (`FEAT-07`, `FEAT-08`, `FEAT-09`)
+* File malware otomatis diisolasi ke `/data/quarantine/` dengan format nama netral `Q-YYYYMMDD-ULID.quarantine`.
+* File mengalami XOR binary scrambling dan disimpan dengan permission `0600`.
+* Restore file didukung via `POST /api/v1/quarantine/restore`, secara otomatis mendaftarkan hash SHA-256 ke tabel `whitelist_signatures`.
+* Background worker membersihkan log audit lama (> 3 hari) dan file karantina kadaluarsa (> 7 hari).
 
-### 3.3. Fitur Alerting, Rate Limiting, & Security (FEAT-10 s/d FEAT-13)
-* **Kebutuhan Bisnis:** Observabilitas real-time terhadap ancaman keamanan dan proteksi server dari beban berlebih (fair usage).
-* **Integrasi Teknis:**
-  - Alert instan via bot Telegram, Discord webhook, dan email SMTP dengan proteksi anti-spam flood throttling.
-  - In-memory token bucket rate limiting mengembalikan header `X-RateLimit-*` dan HTTP `429 Too Many Requests`.
-  - Zero-touch master key generation otomatis menulis `ENCRYPTION_KEY` ke `.env` pada booting pertama.
-  - Kredensial webhook dan token bot tersimpan terenkripsi dengan AES-256-GCM di SQLite.
+### 3.3. Multi-Channel Alerting & Throttling (`FEAT-10`, `FEAT-11`)
+* Notifikasi ancaman seketika terkirim ke bot Telegram dan webhook Discord saat virus ditemukan.
+* Dilengkapi algoritma sliding-window 60 detik (*Anti-Spam Flood Throttling*) yang mencegah spam saat terjadi lonjakan deteksi malware (> 5 malware/menit).
 
-### 3.4. Fitur Admin Dashboard, Supervisi, & Ops (FEAT-14 s/d FEAT-17)
-* **Kebutuhan Bisnis:** Kemudahan pengoperasian bagi DevOps & SecOps tanpa ketergantungan software supervisor eksternal.
-* **Integrasi Teknis:**
-  - Binary Go bertindak sebagai Master Process (PID 1) yang men-spawn subprocess `clamd` dan `freshclam`.
-  - Dashboard Web UI (SPA) disajikan langsung dari binary Go di port 8080.
-  - Export data riwayat scan ke format CSV dan JSON secara streaming.
-  - Endpoint health probe `/healthz` dan Prometheus `/metrics`.
+### 3.4. Rate Limiting, Master Key, & Security (`FEAT-12`, `FEAT-13`)
+* Algoritma *token bucket* membatasi request per client IP / API key dan mengembalikan header `X-RateLimit-*`.
+* First boot otomatis men-generate master encryption key (`clam_sec_...`) dan menginjeksi ke `.env`.
+* Kredensial sensitif dienkripsi menggunakan cipher simetris **AES-256-GCM** dengan nonce 96-bit.
