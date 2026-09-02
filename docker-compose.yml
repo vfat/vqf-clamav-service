@@ -1,0 +1,33 @@
+services:
+  clamav-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vqf-clamav-service:latest
+    container_name: clamav-service
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      - .env
+    volumes:
+      # Persistent volume for SQLite DB & Quarantine Vault
+      - ./data:/data
+      # Named volume to persist downloaded virus signatures across restarts
+      - clamav_signatures:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        reservations:
+          memory: 1536M
+        limits:
+          memory: 3072M
+
+volumes:
+  clamav_signatures:
+    name: clamav_signatures_data

@@ -1,0 +1,8 @@
+.git
+.gitignore
+.agent
+.ai-doc
+data/
+tmp/
+*.log
+.env
