@@ -278,11 +278,15 @@ In the greenfield phase, do not create these derived artifacts unless the user e
 
 ## 18. TDD Add-On Rule
 
-TDD adalah add-on opsional dan mandiri untuk greenfield development.
+> **Project TDD Policy:** `TDD: Enabled`  
+> **Scope:** Full Greenfield Development (`clamav-service`)  
+> **Decision Date:** 2026-09-02  
+> **Control Plane:** [`.ai-doc/tdd-overview.md`](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/tdd-overview.md)
 
-- TDD tidak aktif secara default dan agent MUST meminta keputusan eksplisit user.
-- Keputusan project-wide MUST dicatat di constitution project sebagai `TDD: Enabled` atau `TDD: Disabled`, beserta scope dan tanggal keputusan.
-- Jika enabled, buat `.ai-doc/tdd-overview.md` dari `add-on/tdd/template/tdd-overview-template.md`.
+TDD adalah add-on mandiri untuk greenfield development yang telah aktif berdasarkan keputusan eksplisit user.
+
+- Keputusan project-wide telah dicatat: `TDD: Enabled`.
+- Control plane aktif di `.ai-doc/tdd-overview.md`.
 - Untuk behavior baru, test MUST ditulis dan dijalankan lebih dahulu. Production code tidak boleh ditulis sebelum failure yang diharapkan terbukti (`RED`).
 - Setelah implementasi minimal, test harus dijalankan sampai lulus (`GREEN`), kemudian refactor hanya boleh dilakukan dengan test tetap lulus.
 - Setiap target harus memiliki status `PLANNED`, `RED`, `GREEN`, `REFACTORING`, `REFACTORED`, `BLOCKED`, atau `EXCEPTION` di `tdd-overview.md`.
