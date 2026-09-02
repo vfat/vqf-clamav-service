@@ -18,6 +18,7 @@ import (
 	"github.com/vfat/vqf-clamav-service/internal/quarantine"
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
+	"github.com/vfat/vqf-clamav-service/web"
 )
 
 // ServerConfig holds dependencies and configuration for the HTTP server.
@@ -65,6 +66,12 @@ func (s *Server) Router() http.Handler {
 }
 
 func (s *Server) routes() {
+	// Web UI SPA & Static Assets
+	s.mux.Handle("/static/", http.StripPrefix("/static/", web.AssetHandler()))
+	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/static/index.html", http.StatusFound)
+	})
+
 	// Health and Ops
 	s.mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)

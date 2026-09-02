@@ -244,25 +244,34 @@ Bukti kode:
 ---
 
 ### 3.7. Embedded Web Admin UI (`web/`, `internal/api`)
-**Status:** ⏳ **In-Progress**  
+**Status:** ✅ **Active**  
 **Reference:** [`project-overview.md`](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/project-overview.md)
 
 Deskripsi:
 Antarmuka web SPA mandiri yang di-embed langsung ke dalam binary Go, menyediakan visualisasi status daemon, drag-and-drop file scanner, manajemen file karantina, dan pengaturan API key.
 
 Use case yang terverifikasi:
-- ⏳ `UC-UI-01: View Service Health & Throughput Dashboard` (In-Progress)
-- ⏳ `UC-UI-02: Interactive Drag-and-Drop Test Scan` (In-Progress)
-- ⏳ `UC-UI-03: Manage Quarantine Vault & Whitelist` (In-Progress)
-- ⏳ `UC-UI-04: Manage API Keys & Alert Settings` (In-Progress)
+- ✅ `UC-UI-01: View Service Health & Throughput Dashboard` (Active)
+- ✅ `UC-UI-02: Interactive Drag-and-Drop Test Scan` (Active)
+- ✅ `UC-UI-03: Manage Quarantine Vault & Whitelist` (Active)
+- ✅ `UC-UI-04: Manage API Keys & Alert Settings` (Active)
+
+Bukti kode:
+- [`web/embed.go`](file:///home/ubuntu/workspace/plan/clamav-service/web/embed.go)
+- [`web/static/index.html`](file:///home/ubuntu/workspace/plan/clamav-service/web/static/index.html)
+- [`web/static/app.css`](file:///home/ubuntu/workspace/plan/clamav-service/web/static/app.css)
+- [`web/static/app.js`](file:///home/ubuntu/workspace/plan/clamav-service/web/static/app.js)
+- [`internal/api/handler_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/handler_test.go#L123-L141)
+
+Implementasi:
+- Static asset serving via `embed.FS` mounted pada route `/static/` dan redirect otomatis dari root `/`.
 
 ---
 
 ## 4. Catatan Pengelompokan & Sinkronisasi DCD
 
 ### Synchronization Status
-- ✅ **Synchronized**: Seluruh 6 komponen backend inti (`Scan & Stream`, `Quarantine Vault`, `Alert Dispatcher`, `Auth & Security`, `Storage & Audit`, `Process Supervisor`) telah sinkron 100% dengan kode aktif dan lulus test suite.
-- ⏳ **Pending UI**: Modul Embedded Web Admin UI sedang disiapkan.
+- ✅ **Synchronized (7/7)**: Seluruh 7 komponen (`Scan & Stream`, `Quarantine Vault`, `Alert Dispatcher`, `Auth & Security`, `Storage & Audit`, `Process Supervisor`, dan `Embedded Web Admin UI`) telah sinkron 100% dengan kode aktif dan lulus seluruh unit test.
 
 ### Key Separation Notes
 - **`Scan & Stream Engine` vs `Quarantine Vault Manager`:** Dipisahkan secara tegas agar logika pemindaian in-memory ClamAV tidak terikat langsung pada filesystem storage karantina.

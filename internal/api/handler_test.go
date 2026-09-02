@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vfat/vqf-clamav-service/internal/alert"
@@ -116,5 +117,24 @@ func TestHandler_ScanMultipartClean(t *testing.T) {
 	// Since socket is mock in unit test, it should handle gracefully or return verdict
 	if w.Code != http.StatusOK && w.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected status 200 or 503 (mock socket), got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandler_ServeStaticWebUI(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/static/app.css", nil)
+	w := httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for /static/app.css, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "CLAMAV-SERVICE") {
+		t.Errorf("expected embedded CSS to contain 'CLAMAV-SERVICE'")
 	}
 }

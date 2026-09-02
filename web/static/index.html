@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClamAV Service — Enterprise Malware Gateway & SecOps Hub</title>
+  <meta name="description" content="High-Performance Antivirus REST API & Real-time Threat Intelligence Hub powered by ClamAV and Go">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand-logo">
+          <div class="logo-shield">
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <polyline points="9 12 11 14 15 10"></polyline>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-title">ClamAV<span class="brand-accent">.IO</span></span>
+            <span class="brand-sub">Security Control Plane</span>
+          </div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-tab="dashboard" id="nav-dashboard">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          <span>Overview</span>
+        </button>
+        <button class="nav-item" data-tab="scanner" id="nav-scanner">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="22" y1="12" x2="18" y2="12"></line><line x1="6" y1="12" x2="2" y2="12"></line><line x1="12" y1="6" x2="12" y2="2"></line><line x1="12" y1="22" x2="12" y2="18"></line></svg>
+          <span>Live Scan Lab</span>
+        </button>
+        <button class="nav-item" data-tab="quarantine" id="nav-quarantine">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          <span>Quarantine Vault</span>
+          <span class="badge-counter" id="quar-badge">0</span>
+        </button>
+        <button class="nav-item" data-tab="audit" id="nav-audit">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          <span>Audit Logs</span>
+        </button>
+        <button class="nav-item" data-tab="apikeys" id="nav-apikeys">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 2l-2 2m-1.5 1.5L16 7l-1.5-1.5-3 3L11 7l-2 2-4-4-2 2 4 4-2 2 3 3 7-7 1.5 1.5 1.5-1.5 2 2 2-2-4-4 2-2z"></path></svg>
+          <span>API Keys & Tokens</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="daemon-status-box">
+          <div class="status-indicator-dot online" id="daemon-indicator"></div>
+          <div class="daemon-info">
+            <span class="daemon-title" id="daemon-name">clamd: Unix Socket</span>
+            <span class="daemon-meta" id="daemon-version">Checking signature DB...</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Stage -->
+    <main class="main-stage">
+      <!-- Top App Bar -->
+      <header class="top-bar">
+        <div class="page-header">
+          <h1 class="page-title" id="current-tab-title">System Overview</h1>
+          <p class="page-subtitle" id="current-tab-subtitle">Real-time threat monitoring and antivirus throughput metrics</p>
+        </div>
+
+        <div class="top-actions">
+          <div class="badge-pill online">
+            <span class="dot"></span>
+            <span>REST API v1.0.0</span>
+          </div>
+          <button class="btn-icon" id="btn-refresh" title="Refresh Telemetry">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- TAB 1: OVERVIEW -->
+      <section class="tab-pane active" id="tab-dashboard">
+        <!-- Metric Cards Grid -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">Total Files Scanned</span>
+              <div class="metric-icon blue">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+              </div>
+            </div>
+            <div class="metric-value" id="stat-total-scans">--</div>
+            <div class="metric-footer text-emerald">
+              <span>● 100% In-Memory Socket</span>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">Threats Neutralized</span>
+              <div class="metric-icon red">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              </div>
+            </div>
+            <div class="metric-value text-red" id="stat-threats">--</div>
+            <div class="metric-footer text-red">
+              <span>● Auto-Quarantined in Vault</span>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">Avg Latency</span>
+              <div class="metric-icon amber">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              </div>
+            </div>
+            <div class="metric-value text-amber" id="stat-latency">&lt; 45 ms</div>
+            <div class="metric-footer text-muted">
+              <span>● Non-blocking chunk stream</span>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">Engine Security</span>
+              <div class="metric-icon emerald">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              </div>
+            </div>
+            <div class="metric-value text-emerald" id="stat-sec-mode">AES-256</div>
+            <div class="metric-footer text-emerald">
+              <span>● Zero-Touch Master Key</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Activity & Engine Status Grid -->
+        <div class="dashboard-split-grid">
+          <!-- Recent Threat Feeds -->
+          <div class="card panel-card">
+            <div class="panel-header">
+              <h2 class="panel-title">Live Threat Intelligence Stream</h2>
+              <span class="tag-live">REALTIME</span>
+            </div>
+            <div class="panel-body">
+              <div class="threat-feed-list" id="threat-feed-container">
+                <div class="empty-state">
+                  <div class="empty-icon">🛡️</div>
+                  <div class="empty-title">All Systems Clean</div>
+                  <div class="empty-desc">No malicious threats detected in the active inspection window.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Server Topology & Health -->
+          <div class="card panel-card">
+            <div class="panel-header">
+              <h2 class="panel-title">Engine Topology & Resilience</h2>
+            </div>
+            <div class="panel-body">
+              <div class="topology-list">
+                <div class="topology-row">
+                  <div class="topo-icon ok">✓</div>
+                  <div class="topo-info">
+                    <span class="topo-title">ClamAV Daemon (`clamd`)</span>
+                    <span class="topo-detail">Unix Socket: <code>/var/run/clamav/clamd.ctl</code></span>
+                  </div>
+                  <span class="badge-status online">ACTIVE</span>
+                </div>
+
+                <div class="topology-row">
+                  <div class="topo-icon ok">✓</div>
+                  <div class="topo-info">
+                    <span class="topo-title">SQLite Database (WAL Mode)</span>
+                    <span class="topo-detail">Storage: <code>/data/clamav-service.db</code></span>
+                  </div>
+                  <span class="badge-status online">HEALTHY</span>
+                </div>
+
+                <div class="topology-row">
+                  <div class="topo-icon ok">✓</div>
+                  <div class="topo-info">
+                    <span class="topo-title">Quarantine Vault Driver</span>
+                    <span class="topo-detail">Isolation Path: <code>/data/quarantine/</code> (0600)</span>
+                  </div>
+                  <span class="badge-status online">ENFORCED</span>
+                </div>
+
+                <div class="topology-row">
+                  <div class="topo-icon ok">✓</div>
+                  <div class="topo-info">
+                    <span class="topo-title">Rate Limiter (Token Bucket)</span>
+                    <span class="topo-detail">Policy: 50 RPS Global / 100 RPM Key</span>
+                  </div>
+                  <span class="badge-status online">ACTIVE</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: LIVE SCAN LAB -->
+      <section class="tab-pane" id="tab-scanner">
+        <div class="scanner-container">
+          <div class="card scan-card">
+            <div class="scan-dropzone" id="scan-dropzone">
+              <input type="file" id="file-input" class="file-input-hidden" multiple>
+              <div class="dropzone-content">
+                <div class="dropzone-icon">
+                  <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                </div>
+                <h3 class="dropzone-title">Drag & Drop Files Here or <span class="browse-link">Browse</span></h3>
+                <p class="dropzone-meta">Supports Executables, Archives (.zip, .rar, .tar.gz), Documents, and Binaries up to 100 MB</p>
+                <div class="eicar-hint">
+                  <span>Want to test EICAR malware standard?</span>
+                  <button class="btn-link" id="btn-test-eicar">Generate EICAR Test Sample</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Scan In Progress Animation -->
+            <div class="scan-loading-box" id="scan-loading" style="display: none;">
+              <div class="radar-spinner"></div>
+              <div class="scan-loading-text">Streaming binary bytes to ClamAV Engine...</div>
+              <div class="scan-loading-sub">Performing deep signature matching & bytecode heuristics</div>
+            </div>
+
+            <!-- Scan Verdict Output Card -->
+            <div class="scan-verdict-box" id="scan-verdict-card" style="display: none;">
+              <div class="verdict-header" id="verdict-header">
+                <div class="verdict-badge-box" id="verdict-badge">
+                  <span class="verdict-icon" id="verdict-icon">🛡️</span>
+                  <span class="verdict-title" id="verdict-title">CLEAN</span>
+                </div>
+                <div class="verdict-time" id="verdict-duration">Scan Latency: 32 ms</div>
+              </div>
+
+              <div class="verdict-body">
+                <div class="verdict-grid">
+                  <div class="verdict-field">
+                    <span class="field-label">File Name:</span>
+                    <span class="field-val font-mono" id="verdict-filename">document.pdf</span>
+                  </div>
+                  <div class="verdict-field">
+                    <span class="field-label">File Size:</span>
+                    <span class="field-val" id="verdict-filesize">1.45 MB</span>
+                  </div>
+                  <div class="verdict-field col-span-2">
+                    <span class="field-label">SHA-256 Checksum:</span>
+                    <span class="field-val font-mono text-break" id="verdict-sha256">e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855</span>
+                  </div>
+                  <div class="verdict-field col-span-2" id="verdict-threat-row" style="display: none;">
+                    <span class="field-label text-red">Identified Malware:</span>
+                    <span class="field-val text-red font-bold" id="verdict-threatname">Eicar-Test-Signature</span>
+                  </div>
+                  <div class="verdict-field col-span-2" id="verdict-quar-row" style="display: none;">
+                    <span class="field-label text-amber">Vault Isolation ID:</span>
+                    <span class="field-val font-mono text-amber" id="verdict-quarid">Q-20260902-8f92a10b</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: QUARANTINE VAULT -->
+      <section class="tab-pane" id="tab-quarantine">
+        <div class="card panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Quarantine Vault Explorer</h2>
+              <p class="panel-subtitle">Neutralized malware payloads stored under strict isolation (0600 permissions & XOR scrambling)</p>
+            </div>
+            <div class="header-actions">
+              <span class="badge-pill amber">TTL: 7 Days Auto-Purge</span>
+            </div>
+          </div>
+
+          <div class="panel-body">
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Vault ID</th>
+                    <th>Original Filename</th>
+                    <th>Malware Threat</th>
+                    <th>SHA-256 Hash</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="quarantine-table-body">
+                  <tr>
+                    <td colspan="6" class="text-center text-muted py-6">Loading vault repository...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: AUDIT LOGS -->
+      <section class="tab-pane" id="tab-audit">
+        <div class="card panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Scan Audit Logs & Compliance</h2>
+              <p class="panel-subtitle">Transactional record of all HTTP scan invocations with streaming CSV export</p>
+            </div>
+            <div class="header-actions">
+              <a href="/api/v1/audit/export" class="btn btn-secondary" id="btn-export-csv" download>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>Export CSV</span>
+              </a>
+            </div>
+          </div>
+
+          <div class="panel-body">
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Consumer</th>
+                    <th>File Name</th>
+                    <th>Verdict</th>
+                    <th>Threat Name</th>
+                    <th>Duration</th>
+                  </tr>
+                </thead>
+                <tbody id="audit-table-body">
+                  <tr>
+                    <td colspan="6" class="text-center text-muted py-6">Loading audit trails...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: API KEYS -->
+      <section class="tab-pane" id="tab-apikeys">
+        <div class="card panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">API Authentication & Integration Tokens</h2>
+              <p class="panel-subtitle">Secure integration credentials for Consumer Applications (Microservices & Upload Gateways)</p>
+            </div>
+          </div>
+
+          <div class="panel-body">
+            <div class="api-key-box">
+              <div class="key-banner">
+                <div class="key-icon">🔑</div>
+                <div class="key-info">
+                  <span class="key-label">Active Integration Key</span>
+                  <div class="key-display font-mono" id="master-key-display">clam_live_••••••••••••••••••••••••••••••••</div>
+                </div>
+                <button class="btn btn-primary" id="btn-copy-key">Copy Token</button>
+              </div>
+
+              <div class="code-examples-section">
+                <h3 class="section-title">Quick Integration (cURL Example)</h3>
+                <pre class="code-block"><code class="font-mono">curl -X POST http://localhost:8080/api/v1/scan/file \
+  -H "X-Consumer-Name: My-Upload-Service" \
+  -F "file=@/path/to/invoice.pdf"</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
