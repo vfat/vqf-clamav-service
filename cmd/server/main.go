@@ -18,6 +18,7 @@ import (
 	"github.com/vfat/vqf-clamav-service/internal/quarantine"
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
+	"github.com/vfat/vqf-clamav-service/internal/supervisor"
 )
 
 func main() {
@@ -76,8 +77,15 @@ func main() {
 	rateLimitRPM := getEnvInt("RATE_LIMIT_DEFAULT_RPM_PER_KEY", 100)
 	rateLimitEnabled := getEnvBool("RATE_LIMIT_ENABLED", true)
 
-	// 6. ClamAV Socket Client Initialization
+	// 6. ClamAV Native Process Supervisor (PID 1 supervises clamd & freshclam)
 	clamdSocket := getEnv("CLAMD_SOCKET", "/var/run/clamav/clamd.ctl")
+	clamdConf := getEnv("CLAMD_CONFIG", "/etc/clamav/clamd.conf")
+	freshclamConf := getEnv("FRESHCLAM_CONFIG", "/etc/clamav/freshclam.conf")
+	dataSigDir := "/var/lib/clamav"
+
+	sup := supervisor.NewSupervisor()
+	_ = sup.Start(context.Background(), clamdConf, freshclamConf, dataSigDir, clamdSocket)
+
 	clamdClient := clamd.NewClient("unix", clamdSocket)
 	log.Printf("[CLAMD] Unix Socket Client targeting %s", clamdSocket)
 
@@ -129,6 +137,8 @@ func main() {
 
 	<-stop
 	log.Println("[SHUTDOWN] Received termination signal. Initiating graceful shutdown...")
+
+	sup.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

@@ -295,7 +295,9 @@ function initUIAuth() {
 
   // Check existing session
   const token = sessionStorage.getItem("ui_auth_token");
-  if (!token) {
+  if (token) {
+    if (lockOverlay) lockOverlay.style.display = "none";
+  } else {
     if (lockOverlay) lockOverlay.style.display = "flex";
   }
 
