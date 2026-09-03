@@ -37,6 +37,7 @@ Inilah 4 alasan arsitektur mengapa menggabungkan ClamAV ke aplikasi utama adalah
 2. ⏳ **Cold-Start Penalty**: Butuh 15–30 detik bagi ClamAV untuk boot dan parse signatures. Ini membuat rolling deployment CI/CD lambat dan pod baru lambat melayani traffic spike.
 3. 🛡️ **Blast Radius Isolation**: File upload bisa membawa Zip-Bomb atau exploit parser C/C++. Jika ClamAV crash atau OOM-Killed, aplikasi bisnis utama Anda (billing, login, checkout) **tetap 100% aman dan tidak ikut down**.
 4. 🌐 **Shared Central Hub**: Cukup 1 instance terpusat untuk melayani seluruh microservice (KYC, Billing, Profile, HR) dengan satu dashboard audit, rate-limiter, dan quarantine vault terpusat.
+5. 📈 **Independent Elastic Scaling**: Traffic upload dokumen biasanya melonjak di jam-jam sibuk (misal: jam submit invoice/klaim, promo Harbolnas, atau registrasi massal). Sebagai service mandiri, kita bisa men-scale ClamAV secara independen tanpa memboroskan resource untuk men-scale seluruh aplikasi monolithic backend kita!
 
 ---
 
@@ -62,6 +63,9 @@ Dilengkapi dashboard SPA modern bertema dark glassmorphism yang di-embed langsun
 - Kubernetes liveness/readiness probes (`/healthz`)
 - SQLite WAL mode untuk audit logs & quarantine persistence
 - Multi-channel instant alerting ke Telegram Bot & Discord Webhook dengan flood throttling.
+
+6. 🚀 Horizontal Scalability & Kubernetes HPA Ready
+Karena core scanning pipeline bekerja secara stateless in-memory streaming tanpa dependensi disk lokal, service ini siap ditaruh di balik Nginx, AWS ALB, maupun Kubernetes HPA (Horizontal Pod Autoscaler). Throughput pemindaian naik secara linier (1 instance = ~50-100 scan/detik, 10 pod = ~1.000 scan/detik) dengan health probes bawaan out-of-the-box!
 
 ---
 
@@ -108,6 +112,7 @@ Weekend ini saya merilis solusi open-source all-in-one:
 
 Fitur utamanya:
 ⚡ Sub-50ms Latency: Streaming in-memory lewat Unix Domain Socket (Zero Disk I/O).
+🚀 Horizontal Scale Ready: Stateless in-memory pipeline, siap di-autoscale di balik Kubernetes HPA / Cloud Load Balancers.
 🛡️ Quarantine Vault: File malware otomatis di-scramble, bisa di-restore, di-whitelist, atau di-download langsung dari browser.
 💻 Embedded Web UI: Dashboard modern dark glassmorphism tanpa dependencies (Single Go Binary).
 🚨 Real-Time Alerting: Notifikasi instan ke Telegram & Discord saat ancaman terdeteksi.
