@@ -483,4 +483,11 @@ func (db *DB) GetSystemStats() (SystemStats, error) {
 	return s, nil
 }
 
+// DeleteQuarantineRecord permanently removes a record from quarantine_records.
+func (db *DB) DeleteQuarantineRecord(id string) error {
+	_, err := db.conn.Exec("DELETE FROM quarantine_records WHERE id = ?", id)
+	return err
+}
+
+
 

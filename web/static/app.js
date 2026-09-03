@@ -217,6 +217,9 @@ async function fetchHealthStatus() {
       if (statsData.success && statsData.data) {
         if (totalScans) totalScans.textContent = statsData.data.total_scans;
         if (threatsStat) threatsStat.textContent = statsData.data.quarantined_files;
+
+        const quarBadge = document.getElementById("quar-badge");
+        if (quarBadge) quarBadge.textContent = statsData.data.quarantined_files;
       }
     } catch (e) {
       console.warn("Stats fetch error:", e);
@@ -248,6 +251,10 @@ async function loadQuarantineTable() {
       return;
     }
 
+    const activeQuarCount = data.items.filter(it => it.status === "QUARANTINED").length;
+    const quarBadge = document.getElementById("quar-badge");
+    if (quarBadge) quarBadge.textContent = activeQuarCount;
+
     tbody.innerHTML = data.items.map(item => {
       const isRestored = item.status === "RESTORED";
       const statusBadge = isRestored 
@@ -258,6 +265,8 @@ async function loadQuarantineTable() {
         ? `<button class="btn btn-secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem;opacity:0.6;" disabled>Restored</button>`
         : `<button class="btn btn-secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem;" onclick="restoreSample('${item.id}')">Restore</button>`;
 
+      const deleteBtn = `<button class="btn btn-secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem;background:rgba(239,68,68,0.15);color:var(--red-glowing);border-color:rgba(239,68,68,0.3);margin-left:0.4rem;" onclick="deleteSample('${item.id}')">Delete</button>`;
+
       const shaShort = item.file_sha256 ? item.file_sha256.substring(0, 16) + "..." : "—";
 
       return `
@@ -267,7 +276,7 @@ async function loadQuarantineTable() {
           <td class="text-red font-bold">${item.virus_name || "Malware"}</td>
           <td class="font-mono text-dim" title="${item.file_sha256}">${shaShort}</td>
           <td>${statusBadge}</td>
-          <td>${actionBtn}</td>
+          <td>${actionBtn}${deleteBtn}</td>
         </tr>
       `;
     }).join("");
@@ -341,6 +350,26 @@ function restoreSample(id) {
       fetchHealthStatus();
     }).catch(err => {
       alert("Restore request failed: " + err);
+    });
+  }
+}
+
+function deleteSample(id) {
+  if (confirm(`Permanently destroy quarantined malware payload ${id}?\n\nThis will remove the file from the vault and delete its database record permanently.`)) {
+    fetch("/api/v1/quarantine/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quarantine_id: id })
+    }).then(res => res.json()).then(data => {
+      if (data.success) {
+        alert("Quarantined payload permanently deleted from vault.");
+      } else {
+        alert("Failed to delete: " + (data.error?.message || "unknown error"));
+      }
+      loadQuarantineTable();
+      fetchHealthStatus();
+    }).catch(err => {
+      alert("Delete request failed: " + err);
     });
   }
 }

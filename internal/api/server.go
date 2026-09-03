@@ -105,6 +105,8 @@ func (s *Server) routes() {
 	// Quarantine
 	s.mux.HandleFunc("GET /api/v1/quarantine", s.handleQuarantineList)
 	s.mux.HandleFunc("POST /api/v1/quarantine/restore", s.handleQuarantineRestore)
+	s.mux.HandleFunc("POST /api/v1/quarantine/delete", s.handleQuarantineDelete)
+	s.mux.HandleFunc("DELETE /api/v1/quarantine", s.handleQuarantineDelete)
 
 	// Audit Logs
 	s.mux.HandleFunc("GET /api/v1/audit/export", s.handleAuditExport)
@@ -429,6 +431,35 @@ func (s *Server) handleQuarantineRestore(w http.ResponseWriter, r *http.Request)
 			"whitelisted":   body.AutoWhitelist,
 			"restored_at":   time.Now().UTC().Format(time.RFC3339),
 		},
+	})
+}
+
+func (s *Server) handleQuarantineDelete(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		QuarantineID string `json:"quarantine_id"`
+	}
+
+	if id := r.URL.Query().Get("id"); id != "" {
+		body.QuarantineID = id
+	} else if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+
+	if body.QuarantineID == "" {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Missing quarantine_id parameter", nil)
+		return
+	}
+
+	if err := s.config.Vault.DeleteFile(r.Context(), body.QuarantineID); err != nil {
+		respondError(w, http.StatusNotFound, "NOT_FOUND", "Quarantine item not found or deletion failed: "+err.Error(), nil)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":       true,
+		"status":        "DELETED",
+		"message":       "Quarantined malware payload permanently destroyed.",
+		"quarantine_id": body.QuarantineID,
 	})
 }
 

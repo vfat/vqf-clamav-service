@@ -142,6 +142,20 @@ func (v *Vault) PurgeExpired(ctx context.Context) (int, error) {
 	return purged, nil
 }
 
+// DeleteFile permanently removes the physical scrambled payload and its database record.
+func (v *Vault) DeleteFile(ctx context.Context, id string) error {
+	record, err := v.db.GetQuarantineRecord(id)
+	if err != nil {
+		return fmt.Errorf("quarantine record not found: %w", err)
+	}
+
+	if record.StoredPath != "" {
+		_ = os.Remove(record.StoredPath)
+	}
+
+	return v.db.DeleteQuarantineRecord(id)
+}
+
 const xorMask = 0xA5
 
 func scrambleBytes(data []byte) []byte {
