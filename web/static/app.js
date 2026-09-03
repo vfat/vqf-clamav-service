@@ -165,6 +165,10 @@ function displayVerdict(res, file) {
       quarRow.style.display = "none";
     }
   }
+
+  // Refresh live overview stats and tables
+  fetchHealthStatus();
+  loadQuarantineTable();
 }
 
 /* ------------------------------------------------------------------------------
@@ -205,8 +209,18 @@ async function fetchHealthStatus() {
 
     if (daemonName) daemonName.textContent = "clamd: Active";
     if (daemonMeta) daemonMeta.textContent = "Socket connected • In-Memory";
-    if (totalScans) totalScans.textContent = "Active";
-    if (threatsStat) threatsStat.textContent = "Isolated";
+
+    // Fetch real database telemetry
+    try {
+      const statsRes = await fetch("/api/v1/stats");
+      const statsData = await statsRes.json();
+      if (statsData.success && statsData.data) {
+        if (totalScans) totalScans.textContent = statsData.data.total_scans;
+        if (threatsStat) threatsStat.textContent = statsData.data.quarantined_files;
+      }
+    } catch (e) {
+      console.warn("Stats fetch error:", e);
+    }
   } catch (err) {
     console.warn("Health probe error:", err);
   }
@@ -219,32 +233,91 @@ async function loadQuarantineTable() {
   const tbody = document.getElementById("quarantine-table-body");
   if (!tbody) return;
 
-  tbody.innerHTML = `
-    <tr>
-      <td class="font-mono text-amber">Q-20260902-8f92a10b</td>
-      <td>invoice.pdf.exe</td>
-      <td class="text-red font-bold">Win.Trojan.Agent-1234</td>
-      <td class="font-mono text-dim">e3b0c44298fc1c...</td>
-      <td><span class="badge-status online" style="background:var(--amber-bg);color:var(--amber-glowing);">QUARANTINED</span></td>
-      <td><button class="btn btn-secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem;" onclick="restoreSample('Q-20260902-8f92a10b')">Restore</button></td>
-    </tr>
-  `;
+  try {
+    const res = await fetch("/api/v1/quarantine");
+    const data = await res.json();
+
+    if (!data.success || !data.items || data.items.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align:center;padding:2.5rem;color:var(--text-muted);">
+            No quarantined threats found in vault. All systems clean.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = data.items.map(item => {
+      const isRestored = item.status === "RESTORED";
+      const statusBadge = isRestored 
+        ? `<span class="badge-status online">RESTORED</span>`
+        : `<span class="badge-status online" style="background:var(--amber-bg);color:var(--amber-glowing);">QUARANTINED</span>`;
+
+      const actionBtn = isRestored
+        ? `<button class="btn btn-secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem;opacity:0.6;" disabled>Restored</button>`
+        : `<button class="btn btn-secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem;" onclick="restoreSample('${item.id}')">Restore</button>`;
+
+      const shaShort = item.file_sha256 ? item.file_sha256.substring(0, 16) + "..." : "—";
+
+      return `
+        <tr>
+          <td class="font-mono text-amber">${item.id}</td>
+          <td>${item.file_name || "unknown"}</td>
+          <td class="text-red font-bold">${item.virus_name || "Malware"}</td>
+          <td class="font-mono text-dim" title="${item.file_sha256}">${shaShort}</td>
+          <td>${statusBadge}</td>
+          <td>${actionBtn}</td>
+        </tr>
+      `;
+    }).join("");
+  } catch (err) {
+    console.warn("Quarantine load error:", err);
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--red);">Failed to load quarantine records</td></tr>`;
+  }
 }
 
 async function loadAuditTable() {
   const tbody = document.getElementById("audit-table-body");
   if (!tbody) return;
 
-  tbody.innerHTML = `
-    <tr>
-      <td class="font-mono text-dim">${new Date().toLocaleTimeString()}</td>
-      <td>Billing-Service</td>
-      <td class="font-mono">document.pdf</td>
-      <td><span class="badge-status online">CLEAN</span></td>
-      <td class="text-dim">—</td>
-      <td class="font-mono">34 ms</td>
-    </tr>
-  `;
+  try {
+    const res = await fetch("/api/v1/audit/export?format=json");
+    const data = await res.json();
+
+    if (!data.success || !data.items || data.items.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align:center;padding:2.5rem;color:var(--text-muted);">
+            No scan audit logs recorded yet.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = data.items.map(l => {
+      const isClean = l.verdict === "CLEAN";
+      const badge = isClean
+        ? `<span class="badge-status online">CLEAN</span>`
+        : `<span class="badge-status online" style="background:var(--red-bg);color:var(--red-glowing);">INFECTED</span>`;
+      const threat = l.virus_name ? `<span class="text-red font-bold">${l.virus_name}</span>` : `<span class="text-dim">—</span>`;
+      const timeStr = new Date(l.timestamp).toLocaleTimeString();
+
+      return `
+        <tr>
+          <td class="font-mono text-dim">${timeStr}</td>
+          <td>${l.consumer_name || "API Client"}</td>
+          <td class="font-mono">${l.file_name || "stream"}</td>
+          <td>${badge}</td>
+          <td>${threat}</td>
+          <td class="font-mono">${l.scan_duration_ms} ms</td>
+        </tr>
+      `;
+    }).join("");
+  } catch (err) {
+    console.warn("Audit load error:", err);
+  }
 }
 
 function restoreSample(id) {
@@ -258,9 +331,16 @@ function restoreSample(id) {
         reason: "User verified false positive",
         auto_whitelist: true
       })
-    }).then(() => {
-      alert("File restored successfully & SHA-256 added to whitelist.");
+    }).then(res => res.json()).then(data => {
+      if (data.success) {
+        alert("File restored successfully & SHA-256 added to whitelist.");
+      } else {
+        alert("Failed to restore: " + (data.error?.message || "unknown error"));
+      }
       loadQuarantineTable();
+      fetchHealthStatus();
+    }).catch(err => {
+      alert("Restore request failed: " + err);
     });
   }
 }

@@ -91,6 +91,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("GET /api/v1/metrics", s.handleMetrics)
+	s.mux.HandleFunc("GET /api/v1/stats", s.handleStats)
 
 	// Web UI Password Auth
 	s.mux.HandleFunc("GET /api/v1/auth/ui-status", s.handleUIStatus)
@@ -142,7 +143,7 @@ func (s *Server) applyMiddlewares(h http.Handler) http.Handler {
 		// Authentication Check
 		path := r.URL.Path
 		isPublic := path == "/healthz" || path == "/api/v1/health" || path == "/api/v1/metrics" ||
-			path == "/api/v1/auth/ui-login" || path == "/api/v1/auth/ui-status" ||
+			path == "/api/v1/stats" || path == "/api/v1/auth/ui-login" || path == "/api/v1/auth/ui-status" ||
 			path == "/" || strings.HasPrefix(path, "/static/")
 
 		if !isPublic && s.config.AuthMode != "none" {
@@ -327,23 +328,147 @@ func (s *Server) handleScanStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleQuarantineList(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	offset := 0
+	status := r.URL.Query().Get("status")
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if val, err := strconv.Atoi(l); err == nil && val > 0 {
+			limit = val
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if val, err := strconv.Atoi(o); err == nil && val >= 0 {
+			offset = val
+		}
+	}
+
+	records, total, err := s.config.DB.ListQuarantineRecords(limit, offset, status)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to retrieve quarantine records", nil)
+		return
+	}
+
+	type quarantineItem struct {
+		ID            string `json:"id"`
+		FileName      string `json:"file_name"`
+		FileSize      int64  `json:"file_size"`
+		FileSHA256    string `json:"file_sha256"`
+		VirusName     string `json:"virus_name"`
+		ConsumerName  string `json:"consumer_name"`
+		Status        string `json:"status"`
+		QuarantinedAt string `json:"quarantined_at"`
+		ExpiresAt     string `json:"expires_at"`
+	}
+
+	items := make([]quarantineItem, 0)
+	for _, rec := range records {
+		items = append(items, quarantineItem{
+			ID:            rec.ID,
+			FileName:      rec.OriginalFilename,
+			FileSize:      rec.FileSizeBytes,
+			FileSHA256:    rec.FileSHA256,
+			VirusName:     rec.VirusName,
+			ConsumerName:  rec.SourceConsumer,
+			Status:        rec.Status,
+			QuarantinedAt: rec.CreatedAt.Format(time.RFC3339),
+			ExpiresAt:     rec.ExpiresAt.Format(time.RFC3339),
+		})
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
-		"items":   []interface{}{},
+		"total":   total,
+		"items":   items,
 	})
 }
 
 func (s *Server) handleQuarantineRestore(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		QuarantineID  string `json:"quarantine_id"`
+		RestoredBy    string `json:"restored_by"`
+		Reason        string `json:"reason"`
+		AutoWhitelist bool   `json:"auto_whitelist"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Malformed JSON payload", nil)
+		return
+	}
+
+	if body.QuarantineID == "" {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Missing quarantine_id parameter", nil)
+		return
+	}
+
+	if body.RestoredBy == "" {
+		body.RestoredBy = "admin"
+	}
+	if body.Reason == "" {
+		body.Reason = "Restored via Web Admin UI"
+	}
+
+	rec, err := s.config.DB.GetQuarantineRecord(body.QuarantineID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "NOT_FOUND", "Quarantine record not found", nil)
+		return
+	}
+
+	if err := s.config.DB.RestoreQuarantineRecord(body.QuarantineID, body.RestoredBy, body.Reason, body.AutoWhitelist); err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to restore quarantine record: "+err.Error(), nil)
+		return
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"status":  "RESTORED",
+		"message": "File restored successfully and hash whitelisted.",
+		"data": map[string]interface{}{
+			"quarantine_id": rec.ID,
+			"status":        "RESTORED",
+			"file_sha256":   rec.FileSHA256,
+			"whitelisted":   body.AutoWhitelist,
+			"restored_at":   time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+}
+
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.config.DB.GetSystemStats()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to fetch stats", nil)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    stats,
 	})
 }
 
 func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
+	format := r.URL.Query().Get("format")
+	logs, _, err := s.config.DB.ListScanAuditLogs(storage.AuditFilter{Limit: 100})
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to query audit logs", nil)
+		return
+	}
+
+	if format == "json" || strings.Contains(r.Header.Get("Accept"), "application/json") {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"items":   logs,
+		})
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", "attachment; filename=\"scan_audit_logs.csv\"")
 	fmt.Fprintf(w, "id,timestamp,consumer,file_name,verdict,virus_name,duration_ms\n")
+	for _, l := range logs {
+		fmt.Fprintf(w, "%s,%s,%s,%s,%s,%s,%d\n",
+			l.ID, l.Timestamp.Format(time.RFC3339), l.ConsumerName, l.FileName,
+			l.Verdict, l.VirusName, l.ScanDurationMs,
+		)
+	}
 }
 
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {

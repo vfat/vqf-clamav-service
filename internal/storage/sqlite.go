@@ -393,3 +393,94 @@ func (db *DB) SetSystemSetting(key, val string) error {
 	return err
 }
 
+// ListQuarantineRecords queries quarantine records with pagination and optional status filter.
+func (db *DB) ListQuarantineRecords(limit, offset int, status string) ([]QuarantineRecord, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	whereClause := ""
+	var args []interface{}
+	if status != "" && status != "ALL" {
+		whereClause = "WHERE status = ?"
+		args = append(args, status)
+	}
+
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM quarantine_records %s", whereClause)
+	var total int
+	if err := db.conn.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	selectQuery := fmt.Sprintf(`
+	SELECT id, original_filename, file_size_bytes, file_sha256, virus_name,
+	       source_consumer, stored_path, status, created_at, expires_at,
+	       restored_at, restored_by, restore_reason
+	FROM quarantine_records
+	%s
+	ORDER BY created_at DESC
+	LIMIT ? OFFSET ?
+	`, whereClause)
+
+	args = append(args, limit, offset)
+	rows, err := db.conn.Query(selectQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var records []QuarantineRecord
+	for rows.Next() {
+		var q QuarantineRecord
+		var createdStr, expiresStr string
+		var restoredStr, restoredBy, restoreReason sql.NullString
+
+		if err := rows.Scan(
+			&q.ID, &q.OriginalFilename, &q.FileSizeBytes, &q.FileSHA256, &q.VirusName,
+			&q.SourceConsumer, &q.StoredPath, &q.Status, &createdStr, &expiresStr,
+			&restoredStr, &restoredBy, &restoreReason,
+		); err != nil {
+			return nil, 0, err
+		}
+
+		q.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+		q.ExpiresAt, _ = time.Parse(time.RFC3339, expiresStr)
+		if restoredStr.Valid {
+			t, _ := time.Parse(time.RFC3339, restoredStr.String)
+			q.RestoredAt = &t
+		}
+		if restoredBy.Valid {
+			q.RestoredBy = restoredBy.String
+		}
+		if restoreReason.Valid {
+			q.RestoreReason = restoreReason.String
+		}
+
+		records = append(records, q)
+	}
+
+	return records, total, nil
+}
+
+// SystemStats represents real-time counts of scans and quarantine records.
+type SystemStats struct {
+	TotalScans    int `json:"total_scans"`
+	CleanScans    int `json:"clean_scans"`
+	InfectedScans int `json:"infected_scans"`
+	Quarantined   int `json:"quarantined_files"`
+}
+
+// GetSystemStats returns aggregate statistics from scan logs and quarantine vault.
+func (db *DB) GetSystemStats() (SystemStats, error) {
+	var s SystemStats
+	_ = db.conn.QueryRow("SELECT COUNT(*) FROM scan_audit_logs").Scan(&s.TotalScans)
+	_ = db.conn.QueryRow("SELECT COUNT(*) FROM scan_audit_logs WHERE verdict = 'CLEAN'").Scan(&s.CleanScans)
+	_ = db.conn.QueryRow("SELECT COUNT(*) FROM scan_audit_logs WHERE verdict = 'INFECTED'").Scan(&s.InfectedScans)
+	_ = db.conn.QueryRow("SELECT COUNT(*) FROM quarantine_records WHERE status = 'QUARANTINED'").Scan(&s.Quarantined)
+	return s, nil
+}
+
+
