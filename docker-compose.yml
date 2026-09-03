@@ -1,6 +1,6 @@
 services:
   clamav-service:
-    image: vickyfatrian/clamav-service:latest
+    image: vickyfatrian/vqf-clamav-service:latest
     build:
       context: .
       dockerfile: Dockerfile

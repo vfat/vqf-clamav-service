@@ -33,7 +33,6 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            vickyfatrian/clamav-service
             vickyfatrian/vqf-clamav-service
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}

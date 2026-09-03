@@ -24,7 +24,7 @@
 ## 🐳 Docker Hub Image
 
 Image resmi tersedia di Docker Hub:  
-👉 [**`vickyfatrian/clamav-service:latest`**](https://hub.docker.com/r/vickyfatrian/clamav-service) (atau tag rilis [**`v1.0.0`**](https://hub.docker.com/r/vickyfatrian/clamav-service/tags))
+👉 [**`vickyfatrian/vqf-clamav-service:latest`**](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service) (atau tag rilis [**`v1.0.0`**](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service/tags))
 
 ### One-Liner Quick Run (Tanpa Clone Source Code):
 ```bash
@@ -33,7 +33,7 @@ docker run -d \
   -p 8080:8080 \
   -v $(pwd)/data:/data \
   -v clamav_signatures:/var/lib/clamav \
-  vickyfatrian/clamav-service:latest
+  vickyfatrian/vqf-clamav-service:latest
 ```
 
 ---
