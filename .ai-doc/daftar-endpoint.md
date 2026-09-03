@@ -29,12 +29,20 @@ Dokumen ini mendokumentasikan daftar lengkap endpoint HTTP REST API yang tersedi
 |---|---|---|---|
 | `GET` | `/api/v1/audit/export` | Mengunduh riwayat log audit pemindaian dalam format CSV atau JSON streaming. | `Published` |
 
-### 2.4. Komponen Health, Observability & Ops
+### 2.4. Komponen Web UI & Dashboard Authentication
 
 | Method | Endpoint | Description | Status |
 |---|---|---|---|
-| `GET` | `/api/v1/health` | Healthcheck & readiness probe status database, socket ClamAV, dan service uptime. | `Published` |
-| `GET` | `/healthz` | Kubernetes lightweight liveness/readiness probe. | `Published` |
+| `GET` | `/api/v1/auth/ui-status` | Memeriksa status proteksi keamanan antarmuka Web Admin UI. | `Published` |
+| `POST` | `/api/v1/auth/ui-login` | Autentikasi sesi dashboard Web Admin UI (default password `123456`). | `Published` |
+| `POST` | `/api/v1/auth/ui-password` | Mengubah password dashboard Web Admin UI dan menyimpannya secara persisten ke SQLite. | `Published` |
+
+### 2.5. Komponen Health, Observability & Ops
+
+| Method | Endpoint | Description | Status |
+|---|---|---|---|
+| `GET` | `/api/v1/health` | Healthcheck & readiness probe (Selalu public / bypass auth). | `Published` |
+| `GET` | `/healthz` | Kubernetes lightweight liveness/readiness probe (Selalu public / bypass auth). | `Published` |
 | `GET` | `/api/v1/metrics` | Endpoint Prometheus metrics (`text/plain; version=0.0.4`). | `Published` |
 
 ---
@@ -46,5 +54,10 @@ Dokumen ini mendokumentasikan daftar lengkap endpoint HTTP REST API yang tersedi
 ---
 
 ## 4. Asumsi, Keamanan, dan Kebijakan Akses
-- **Authentication**: Mendukung validasi token via header `Authorization: Bearer <API_KEY>` jika `REQUIRE_API_KEY=true`.
+- **API Authorization Policy (`AUTH_MODE`)**:
+  - `none` (*Default*): Bebas autentikasi untuk kemudahan integrasi di internal VPC/Docker network.
+  - `basic`: Mewajibkan header `Authorization: Basic <base64>` menggunakan kredensial `AUTH_BASIC_USER` & `AUTH_BASIC_PASS`.
+  - `bearer`: Mewajibkan header `Authorization: Bearer <token>` atau `X-API-Key: <token>`.
+  - *Exemption*: Endpoint `/healthz` dan `/api/v1/health` selalu di-bypass agar container healthcheck tidak terblokir.
+- **Web Admin UI Security**: Dilengkapi *Security Lock Screen* dengan default password `123456`, dapat diubah sewaktu-waktu dan disimpan dengan hash SHA-256 salted di tabel SQLite `system_settings`.
 - **Rate Limiting**: Header `X-RateLimit-Limit`, `X-RateLimit-Remaining`, dan `X-RateLimit-Reset` disertakan pada setiap response.

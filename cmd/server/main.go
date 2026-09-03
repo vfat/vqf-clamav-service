@@ -100,6 +100,11 @@ func main() {
 		RateLimitEnabled: rateLimitEnabled,
 		LogRetention:     logRetentionDays,
 		QuarRetention:    quarRetentionDays,
+		AuthMode:         getEnv("AUTH_MODE", "none"),
+		BasicUser:        getEnv("AUTH_BASIC_USER", "admin"),
+		BasicPass:        getEnv("AUTH_BASIC_PASS", ""),
+		BearerToken:      getEnv("AUTH_BEARER_TOKEN", ""),
+		UIPassword:       getEnv("UI_PASSWORD", "123456"),
 	})
 
 	port := getEnv("PORT", "8080")

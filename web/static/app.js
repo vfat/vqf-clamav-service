@@ -3,6 +3,7 @@
    ============================================================================== */
 
 document.addEventListener("DOMContentLoaded", () => {
+  initUIAuth();
   initTabs();
   initScanner();
   initTelemetry();
@@ -271,3 +272,141 @@ function formatBytes(bytes) {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
+
+/* ------------------------------------------------------------------------------
+   6. UI Security Lock & Password Management
+   ------------------------------------------------------------------------------ */
+function initUIAuth() {
+  const lockOverlay = document.getElementById("dashboard-lock-overlay");
+  const loginForm = document.getElementById("form-ui-login");
+  const pwdInput = document.getElementById("ui-password-input");
+  const loginError = document.getElementById("ui-login-error");
+
+  const changePwdBtn = document.getElementById("btn-open-change-pwd");
+  const changePwdModal = document.getElementById("modal-change-pwd");
+  const closePwdBtn = document.getElementById("btn-close-pwd-modal");
+  const cancelPwdBtn = document.getElementById("btn-cancel-change-pwd");
+  const changePwdForm = document.getElementById("form-change-pwd");
+  const currPwdInput = document.getElementById("input-curr-pwd");
+  const newPwdInput = document.getElementById("input-new-pwd");
+  const confirmPwdInput = document.getElementById("input-confirm-pwd");
+  const pwdError = document.getElementById("pwd-change-error");
+  const pwdSuccess = document.getElementById("pwd-change-success");
+
+  // Check existing session
+  const token = sessionStorage.getItem("ui_auth_token");
+  if (!token) {
+    if (lockOverlay) lockOverlay.style.display = "flex";
+  }
+
+  // Handle Login Submit
+  if (loginForm) {
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const password = pwdInput.value.trim();
+      if (!password) return;
+
+      try {
+        const res = await fetch("/api/v1/auth/ui-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          sessionStorage.setItem("ui_auth_token", data.token || "authenticated");
+          if (lockOverlay) lockOverlay.style.display = "none";
+          if (loginError) loginError.style.display = "none";
+          fetchHealthStatus();
+        } else {
+          if (loginError) {
+            loginError.textContent = data.error?.message || "Incorrect password. Please try again.";
+            loginError.style.display = "block";
+          }
+        }
+      } catch (err) {
+        if (loginError) {
+          loginError.textContent = "Network error: " + err.message;
+          loginError.style.display = "block";
+        }
+      }
+    });
+  }
+
+  // Change Password Modal triggers
+  if (changePwdBtn && changePwdModal) {
+    changePwdBtn.addEventListener("click", () => {
+      pwdError.style.display = "none";
+      pwdSuccess.style.display = "none";
+      changePwdForm.reset();
+      changePwdModal.style.display = "flex";
+    });
+  }
+
+  const hideModal = () => {
+    if (changePwdModal) changePwdModal.style.display = "none";
+  };
+  if (closePwdBtn) closePwdBtn.addEventListener("click", hideModal);
+  if (cancelPwdBtn) cancelPwdBtn.addEventListener("click", hideModal);
+
+  // Handle Change Password Submit
+  if (changePwdForm) {
+    changePwdForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      pwdError.style.display = "none";
+      pwdSuccess.style.display = "none";
+
+      const curr = currPwdInput.value.trim();
+      const newPwd = newPwdInput.value.trim();
+      const confirmPwd = confirmPwdInput.value.trim();
+
+      if (newPwd !== confirmPwd) {
+        pwdError.textContent = "New password and confirmation do not match.";
+        pwdError.style.display = "block";
+        return;
+      }
+      if (newPwd.length < 4) {
+        pwdError.textContent = "New password must be at least 4 characters long.";
+        pwdError.style.display = "block";
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/v1/auth/ui-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            current_password: curr,
+            new_password: newPwd
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          pwdSuccess.textContent = "Password updated successfully! Please re-login.";
+          pwdSuccess.style.display = "block";
+          sessionStorage.removeItem("ui_auth_token");
+
+          setTimeout(() => {
+            hideModal();
+            if (lockOverlay) {
+              lockOverlay.style.display = "flex";
+              if (pwdInput) {
+                pwdInput.value = "";
+                pwdInput.focus();
+              }
+            }
+          }, 1200);
+        } else {
+          pwdError.textContent = data.error?.message || "Failed to update password.";
+          pwdError.style.display = "block";
+        }
+      } catch (err) {
+        pwdError.textContent = "Network error: " + err.message;
+        pwdError.style.display = "block";
+      }
+    });
+  }
+}
+

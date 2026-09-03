@@ -15,6 +15,7 @@ import (
 
 	"github.com/vfat/vqf-clamav-service/internal/alert"
 	"github.com/vfat/vqf-clamav-service/internal/clamd"
+	"github.com/vfat/vqf-clamav-service/internal/crypto"
 	"github.com/vfat/vqf-clamav-service/internal/quarantine"
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
@@ -34,6 +35,11 @@ type ServerConfig struct {
 	RateLimitEnabled bool
 	LogRetention     int
 	QuarRetention    int
+	AuthMode         string // "none", "basic", "bearer"
+	BasicUser        string
+	BasicPass        string
+	BearerToken      string
+	UIPassword       string
 }
 
 // Server encapsulates the HTTP API and routing.
@@ -49,6 +55,15 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 	if cfg.RateLimitRPM <= 0 {
 		cfg.RateLimitRPM = 100
+	}
+	if cfg.AuthMode == "" {
+		cfg.AuthMode = "none"
+	}
+	if cfg.BasicUser == "" {
+		cfg.BasicUser = "admin"
+	}
+	if cfg.UIPassword == "" {
+		cfg.UIPassword = "123456"
 	}
 
 	s := &Server{
@@ -72,10 +87,15 @@ func (s *Server) routes() {
 		http.Redirect(w, r, "/static/index.html", http.StatusFound)
 	})
 
-	// Health and Ops
+	// Health and Ops (Always unauthenticated)
 	s.mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("GET /api/v1/metrics", s.handleMetrics)
+
+	// Web UI Password Auth
+	s.mux.HandleFunc("GET /api/v1/auth/ui-status", s.handleUIStatus)
+	s.mux.HandleFunc("POST /api/v1/auth/ui-login", s.handleUILogin)
+	s.mux.HandleFunc("POST /api/v1/auth/ui-password", s.handleUIPassword)
 
 	// Scanning
 	s.mux.HandleFunc("POST /api/v1/scan/file", s.handleScanFile)
@@ -96,7 +116,7 @@ func (s *Server) applyMiddlewares(h http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, X-Consumer-Name")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
@@ -116,6 +136,36 @@ func (s *Server) applyMiddlewares(h http.Handler) http.Handler {
 					"retry_after_seconds": resetTime - time.Now().Unix(),
 				})
 				return
+			}
+		}
+
+		// Authentication Check
+		path := r.URL.Path
+		isPublic := path == "/healthz" || path == "/api/v1/health" || path == "/api/v1/metrics" ||
+			path == "/api/v1/auth/ui-login" || path == "/api/v1/auth/ui-status" ||
+			path == "/" || strings.HasPrefix(path, "/static/")
+
+		if !isPublic && s.config.AuthMode != "none" {
+			if s.config.AuthMode == "basic" {
+				user, pass, ok := r.BasicAuth()
+				if !ok || user != s.config.BasicUser || pass != s.config.BasicPass {
+					w.Header().Set("WWW-Authenticate", `Basic realm="ClamAV Security"`)
+					respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid or missing basic authentication credentials", nil)
+					return
+				}
+			} else if s.config.AuthMode == "bearer" {
+				authHeader := r.Header.Get("Authorization")
+				token := ""
+				if strings.HasPrefix(authHeader, "Bearer ") {
+					token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+				} else if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
+					token = strings.TrimSpace(apiKey)
+				}
+
+				if token == "" || token != s.config.BearerToken {
+					respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid or missing Bearer token / API key", nil)
+					return
+				}
 			}
 		}
 
@@ -332,4 +382,80 @@ func extractConsumer(r *http.Request) string {
 		return c
 	}
 	return "Anonymous-Client"
+}
+
+func (s *Server) handleUIStatus(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"protected": true,
+	})
+}
+
+func (s *Server) verifyUIPassword(input string) bool {
+	if s.config.DB != nil {
+		storedHash, err := s.config.DB.GetSystemSetting("ui_password_hash")
+		if err == nil && storedHash != "" {
+			return crypto.VerifyPassword(input, storedHash)
+		}
+	}
+	fallback := s.config.UIPassword
+	if fallback == "" {
+		fallback = "123456"
+	}
+	return input == fallback
+}
+
+func (s *Server) handleUILogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Malformed JSON payload", nil)
+		return
+	}
+
+	if !s.verifyUIPassword(body.Password) {
+		respondError(w, http.StatusUnauthorized, "INVALID_PASSWORD", "Incorrect dashboard password", nil)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"token":   fmt.Sprintf("ui_sess_%d", time.Now().UnixNano()),
+		"message": "Authenticated successfully",
+	})
+}
+
+func (s *Server) handleUIPassword(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Malformed JSON payload", nil)
+		return
+	}
+
+	if !s.verifyUIPassword(body.CurrentPassword) {
+		respondError(w, http.StatusUnauthorized, "INVALID_PASSWORD", "Current password does not match", nil)
+		return
+	}
+
+	if len(body.NewPassword) < 4 {
+		respondError(w, http.StatusBadRequest, "PASSWORD_TOO_SHORT", "New password must be at least 4 characters long", nil)
+		return
+	}
+
+	newHash := crypto.HashPassword(body.NewPassword)
+	if s.config.DB != nil {
+		if err := s.config.DB.SetSystemSetting("ui_password_hash", newHash); err != nil {
+			respondError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to persist new password", nil)
+			return
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Dashboard password updated successfully",
+	})
 }

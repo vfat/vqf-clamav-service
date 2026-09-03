@@ -42,6 +42,22 @@ The service will boot:
 
 ---
 
+## 🔒 Security & Authorization Policies
+
+### 1. API Authorization (`AUTH_MODE`)
+Configured in `.env` via `AUTH_MODE`:
+* **`none` (Default)**: Unrestricted API access. Recommended for internal VPCs / Docker bridge networks.
+* **`basic`**: Requires HTTP Basic Auth (`AUTH_BASIC_USER` and `AUTH_BASIC_PASS`).
+* **`bearer`**: Requires `Authorization: Bearer <AUTH_BEARER_TOKEN>` or `X-API-Key: <AUTH_BEARER_TOKEN>`.
+* *Note: Healthcheck probes (`/healthz`, `/api/v1/health`) are always public/exempt to ensure continuous monitoring.*
+
+### 2. Web Admin UI Password Protection
+* Accessing `http://localhost:8080` displays a modern security lock screen prompt: *"Enter your password to access the dashboard"*.
+* **Default Password**: `123456`
+* **Password Change**: Click **"Change Password"** in the top navigation bar to set a custom secret. The new password is automatically salted, hashed with SHA-256, and stored persistently in SQLite (`system_settings`).
+
+---
+
 ## 🔌 API Usage Examples
 
 ### 1. Synchronous File Scan

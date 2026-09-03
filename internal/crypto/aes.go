@@ -4,10 +4,14 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // EncryptAESGCM encrypts a plaintext string using AES-256-GCM.
@@ -69,4 +73,42 @@ func DecryptAESGCM(encodedCiphertext string, key []byte) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// HashPassword creates a salted SHA-256 hash formatted as salt$hash.
+func HashPassword(password string) string {
+	salt := make([]byte, 16)
+	_, _ = rand.Read(salt)
+
+	hasher := sha256.New()
+	hasher.Write(salt)
+	hasher.Write([]byte(password))
+	hash := hasher.Sum(nil)
+
+	return fmt.Sprintf("%x$%x", salt, hash)
+}
+
+// VerifyPassword checks if a password matches a salt$hash string.
+func VerifyPassword(password, storedHash string) bool {
+	parts := strings.Split(storedHash, "$")
+	if len(parts) != 2 {
+		return false
+	}
+
+	salt, err := hex.DecodeString(parts[0])
+	if err != nil {
+		return false
+	}
+
+	expectedHash, err := hex.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+
+	hasher := sha256.New()
+	hasher.Write(salt)
+	hasher.Write([]byte(password))
+	actualHash := hasher.Sum(nil)
+
+	return subtle.ConstantTimeCompare(actualHash, expectedHash) == 1
 }

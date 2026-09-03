@@ -90,3 +90,16 @@ func TestAESGCM_TamperedCiphertext(t *testing.T) {
 		t.Errorf("expected authentication tag failure on tampered ciphertext, got nil")
 	}
 }
+
+func TestPasswordHashing(t *testing.T) {
+	pwd := "123456"
+	hash := HashPassword(pwd)
+
+	if !VerifyPassword(pwd, hash) {
+		t.Errorf("expected password '%s' to verify against hash '%s'", pwd, hash)
+	}
+
+	if VerifyPassword("wrongpassword", hash) {
+		t.Errorf("expected wrong password to fail verification")
+	}
+}

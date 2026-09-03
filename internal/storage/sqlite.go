@@ -369,3 +369,27 @@ func (db *DB) RemoveWhitelist(sha256Hash string) error {
 	_, err := db.conn.Exec("DELETE FROM whitelist_signatures WHERE sha256_hash = ?", sha256Hash)
 	return err
 }
+
+// GetSystemSetting retrieves a setting value by key. Returns empty string if not found.
+func (db *DB) GetSystemSetting(key string) (string, error) {
+	var val string
+	err := db.conn.QueryRow("SELECT value_encrypted FROM system_settings WHERE key = ?", key).Scan(&val)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return val, err
+}
+
+// SetSystemSetting stores or updates a system setting.
+func (db *DB) SetSystemSetting(key, val string) error {
+	query := `
+	INSERT INTO system_settings (key, value_encrypted, updated_at)
+	VALUES (?, ?, ?)
+	ON CONFLICT(key) DO UPDATE SET
+	  value_encrypted = excluded.value_encrypted,
+	  updated_at = excluded.updated_at
+	`
+	_, err := db.conn.Exec(query, key, val, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+

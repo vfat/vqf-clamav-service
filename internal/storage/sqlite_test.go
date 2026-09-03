@@ -152,3 +152,46 @@ func TestQuarantineRecords_InsertRestoreAndWhitelist(t *testing.T) {
 		t.Errorf("expected SHA256 '%s' to be whitelisted", quar.FileSHA256)
 	}
 }
+
+func TestSystemSettings_CRUD(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_settings.db")
+
+	db, err := NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("failed to init DB: %v", err)
+	}
+	defer db.Close()
+
+	// Initial get non-existent
+	val, err := db.GetSystemSetting("ui_password_hash")
+	if err != nil {
+		t.Fatalf("failed to get non-existent setting: %v", err)
+	}
+	if val != "" {
+		t.Errorf("expected empty string for non-existent setting, got '%s'", val)
+	}
+
+	// Set value
+	if err := db.SetSystemSetting("ui_password_hash", "salt123$hash456"); err != nil {
+		t.Fatalf("failed to set system setting: %v", err)
+	}
+
+	val, err = db.GetSystemSetting("ui_password_hash")
+	if err != nil {
+		t.Fatalf("failed to get setting: %v", err)
+	}
+	if val != "salt123$hash456" {
+		t.Errorf("expected 'salt123$hash456', got '%s'", val)
+	}
+
+	// Update value (ON CONFLICT DO UPDATE)
+	if err := db.SetSystemSetting("ui_password_hash", "new_salt$new_hash"); err != nil {
+		t.Fatalf("failed to update system setting: %v", err)
+	}
+
+	val, _ = db.GetSystemSetting("ui_password_hash")
+	if val != "new_salt$new_hash" {
+		t.Errorf("expected updated value 'new_salt$new_hash', got '%s'", val)
+	}
+}
