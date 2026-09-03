@@ -27,6 +27,19 @@ Untuk menyelesaikan masalah ini secara tuntas, saya membangun:
 
 ---
 
+### 🤔 "Kenapa ClamAV Harus Menjadi Dedicated Microservice Terpisah?"
+
+Banyak developer berpikir: *"Kenapa tidak install ClamAV langsung di dalam container backend utama saja?"*
+
+Inilah 4 alasan arsitektur mengapa menggabungkan ClamAV ke aplikasi utama adalah ide buruk:
+
+1. 💥 **RAM Explosion saat Auto-Scale**: ClamAV butuh ~1.5 GB RAM hanya untuk memuat 8+ juta virus signature ke memori. Jika digabung ke backend utama dan Kubernetes scale dari 2 ke 10 pod = **15 GB RAM terbuang percuma** hanya untuk me-load data signature yang identik berulang-ulang!
+2. ⏳ **Cold-Start Penalty**: Butuh 15–30 detik bagi ClamAV untuk boot dan parse signatures. Ini membuat rolling deployment CI/CD lambat dan pod baru lambat melayani traffic spike.
+3. 🛡️ **Blast Radius Isolation**: File upload bisa membawa Zip-Bomb atau exploit parser C/C++. Jika ClamAV crash atau OOM-Killed, aplikasi bisnis utama Anda (billing, login, checkout) **tetap 100% aman dan tidak ikut down**.
+4. 🌐 **Shared Central Hub**: Cukup 1 instance terpusat untuk melayani seluruh microservice (KYC, Billing, Profile, HR) dengan satu dashboard audit, rate-limiter, dan quarantine vault terpusat.
+
+---
+
 ### 💡 Apa yang Membuatnya Berbeda?
 
 1. ⚡ Zero-Disk-I/O In-Memory Streaming
