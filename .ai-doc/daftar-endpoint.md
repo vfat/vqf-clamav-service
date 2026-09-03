@@ -9,41 +9,41 @@ Dokumen ini mendokumentasikan daftar lengkap endpoint HTTP REST API yang tersedi
 
 ### 2.1. Komponen Antivirus Scanning
 
-| Method | Endpoint | Description | Status |
-|---|---|---|---|
-| `POST` | `/api/v1/scan/file` | Pemindaian file sinkron via multipart file upload dengan instant verdict (`CLEAN` / `INFECTED`). | `Published` |
-| `POST` | `/api/v1/scan/stream` | Pemindaian raw binary stream chunked tanpa overhead multipart. | `Published` |
-| `POST` | `/api/v1/scan/url` | Pemindaian file remote melalui unduhan stream URL publik / S3. | `Draft` |
-| `POST` | `/api/v1/scan/async` | Pengajuan job pemindaian asinkron dengan webhook callback (`202 Accepted`). | `Draft` |
+| Method | Endpoint | Description | Status | Spesifikasi Teknis |
+|---|---|---|---|---|
+| `POST` | `/api/v1/scan/file` | Pemindaian file sinkron via multipart file upload dengan instant verdict (`CLEAN` / `INFECTED`). | `Published` | [API-SPEC-01](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-01-POST-+api+v1+scan+file.md) |
+| `POST` | `/api/v1/scan/stream` | Pemindaian raw binary stream chunked tanpa overhead multipart. | `Published` | [API-SPEC-02](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-02-POST-+api+v1+scan+stream.md) |
+| `POST` | `/api/v1/scan/url` | Pemindaian file remote melalui unduhan stream URL publik / S3. | `Draft` | [API-SPEC-12](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-12-POST-+api+v1+scan+url.md) |
+| `POST` | `/api/v1/scan/async` | Pengajuan job pemindaian asinkron dengan webhook callback (`202 Accepted`). | `Draft` | [API-SPEC-13](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-13-POST-+api+v1+scan+async.md) |
 
 ### 2.2. Komponen Quarantine Vault
 
-| Method | Endpoint | Description | Status |
-|---|---|---|---|
-| `GET` | `/api/v1/quarantine` | Mengambil daftar file terisolasi di karantina dengan pagination dan filter status. | `Published` |
-| `POST` | `/api/v1/quarantine/restore` | Memulihkan (*restore*) file karantina ke sistem dan mendaftarkan hash ke whitelist. | `Published` |
+| Method | Endpoint | Description | Status | Spesifikasi Teknis |
+|---|---|---|---|---|
+| `GET` | `/api/v1/quarantine` | Mengambil daftar file terisolasi di karantina dengan pagination dan filter status. | `Published` | [API-SPEC-03](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-03-GET-+api+v1+quarantine.md) |
+| `POST` | `/api/v1/quarantine/restore` | Memulihkan (*restore*) file karantina ke sistem dan mendaftarkan hash ke whitelist. | `Published` | [API-SPEC-04](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-04-POST-+api+v1+quarantine+restore.md) |
 
 ### 2.3. Komponen Audit & Compliance
 
-| Method | Endpoint | Description | Status |
-|---|---|---|---|
-| `GET` | `/api/v1/audit/export` | Mengunduh riwayat log audit pemindaian dalam format CSV atau JSON streaming. | `Published` |
+| Method | Endpoint | Description | Status | Spesifikasi Teknis |
+|---|---|---|---|---|
+| `GET` | `/api/v1/audit/export` | Mengunduh riwayat log audit pemindaian dalam format CSV atau JSON streaming. | `Published` | [API-SPEC-05](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-05-GET-+api+v1+audit+export.md) |
 
 ### 2.4. Komponen Web UI & Dashboard Authentication
 
-| Method | Endpoint | Description | Status |
-|---|---|---|---|
-| `GET` | `/api/v1/auth/ui-status` | Memeriksa status proteksi keamanan antarmuka Web Admin UI. | `Published` |
-| `POST` | `/api/v1/auth/ui-login` | Autentikasi sesi dashboard Web Admin UI (default password `123456`). | `Published` |
-| `POST` | `/api/v1/auth/ui-password` | Mengubah password dashboard Web Admin UI dan menyimpannya secara persisten ke SQLite. | `Published` |
+| Method | Endpoint | Description | Status | Spesifikasi Teknis |
+|---|---|---|---|---|
+| `GET` | `/api/v1/auth/ui-status` | Memeriksa status proteksi keamanan antarmuka Web Admin UI. | `Published` | [API-SPEC-06](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-06-GET-+api+v1+auth+ui-status.md) |
+| `POST` | `/api/v1/auth/ui-login` | Autentikasi sesi dashboard Web Admin UI (default password `123456`). | `Published` | [API-SPEC-07](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-07-POST-+api+v1+auth+ui-login.md) |
+| `POST` | `/api/v1/auth/ui-password` | Mengubah password dashboard Web Admin UI dan menyimpannya secara persisten ke SQLite. | `Published` | [API-SPEC-08](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-08-POST-+api+v1+auth+ui-password.md) |
 
 ### 2.5. Komponen Health, Observability & Ops
 
-| Method | Endpoint | Description | Status |
-|---|---|---|---|
-| `GET` | `/api/v1/health` | Healthcheck & readiness probe (Selalu public / bypass auth). | `Published` |
-| `GET` | `/healthz` | Kubernetes lightweight liveness/readiness probe (Selalu public / bypass auth). | `Published` |
-| `GET` | `/api/v1/metrics` | Endpoint Prometheus metrics (`text/plain; version=0.0.4`). | `Published` |
+| Method | Endpoint | Description | Status | Spesifikasi Teknis |
+|---|---|---|---|---|
+| `GET` | `/api/v1/health` | Healthcheck & readiness probe (Selalu public / bypass auth). | `Published` | [API-SPEC-09](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-09-GET-+api+v1+health.md) |
+| `GET` | `/healthz` | Kubernetes lightweight liveness/readiness probe (Selalu public / bypass auth). | `Published` | [API-SPEC-10](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-10-GET-+healthz.md) |
+| `GET` | `/api/v1/metrics` | Endpoint Prometheus metrics (`text/plain; version=0.0.4`). | `Published` | [API-SPEC-11](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/rest-api-doc/API-SPEC-11-GET-+api+v1+metrics.md) |
 
 ---
 
