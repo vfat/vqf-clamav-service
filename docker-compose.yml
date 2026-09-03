@@ -1,9 +1,9 @@
 services:
   clamav-service:
+    image: vickyfatrian/clamav-service:latest
     build:
       context: .
       dockerfile: Dockerfile
-    image: vqf-clamav-service:latest
     container_name: clamav-service
     restart: unless-stopped
     ports:

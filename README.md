@@ -21,6 +21,23 @@
 
 ---
 
+## 🐳 Docker Hub Image
+
+Image resmi tersedia di Docker Hub:  
+👉 [**`vickyfatrian/clamav-service:latest`**](https://hub.docker.com/r/vickyfatrian/clamav-service) (atau tag rilis [**`v1.0.0`**](https://hub.docker.com/r/vickyfatrian/clamav-service/tags))
+
+### One-Liner Quick Run (Tanpa Clone Source Code):
+```bash
+docker run -d \
+  --name clamav-service \
+  -p 8080:8080 \
+  -v $(pwd)/data:/data \
+  -v clamav_signatures:/var/lib/clamav \
+  vickyfatrian/clamav-service:latest
+```
+
+---
+
 ## 🚀 Quick Start with Docker Compose
 
 ### 1. Clone and Prepare Configuration
@@ -32,7 +49,7 @@ cp .env.example .env
 
 ### 2. Launch the All-in-One Container
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 The service will boot:
