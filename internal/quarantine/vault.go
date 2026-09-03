@@ -119,6 +119,22 @@ func (v *Vault) RestoreFile(ctx context.Context, id, restoredBy, reason string, 
 	return io.NopCloser(bytes.NewReader(plainBytes)), updatedRec, nil
 }
 
+// DownloadFile de-scrambles and returns the plain reader for a quarantined payload.
+func (v *Vault) DownloadFile(ctx context.Context, id string) (io.ReadCloser, *storage.QuarantineRecord, error) {
+	record, err := v.db.GetQuarantineRecord(id)
+	if err != nil {
+		return nil, nil, fmt.Errorf("quarantine record not found: %w", err)
+	}
+
+	scrambledBytes, err := os.ReadFile(record.StoredPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read quarantine file on disk: %w", err)
+	}
+
+	plainBytes := descrambleBytes(scrambledBytes)
+	return io.NopCloser(bytes.NewReader(plainBytes)), record, nil
+}
+
 // PurgeExpired deletes physical quarantine files that have exceeded their TTL.
 func (v *Vault) PurgeExpired(ctx context.Context) (int, error) {
 	// Find and remove files older than expires_at

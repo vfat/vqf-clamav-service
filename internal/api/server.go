@@ -104,6 +104,7 @@ func (s *Server) routes() {
 
 	// Quarantine
 	s.mux.HandleFunc("GET /api/v1/quarantine", s.handleQuarantineList)
+	s.mux.HandleFunc("GET /api/v1/quarantine/download", s.handleQuarantineDownload)
 	s.mux.HandleFunc("POST /api/v1/quarantine/restore", s.handleQuarantineRestore)
 	s.mux.HandleFunc("POST /api/v1/quarantine/delete", s.handleQuarantineDelete)
 	s.mux.HandleFunc("DELETE /api/v1/quarantine", s.handleQuarantineDelete)
@@ -461,6 +462,33 @@ func (s *Server) handleQuarantineDelete(w http.ResponseWriter, r *http.Request) 
 		"message":       "Quarantined malware payload permanently destroyed.",
 		"quarantine_id": body.QuarantineID,
 	})
+}
+
+func (s *Server) handleQuarantineDownload(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Missing id parameter", nil)
+		return
+	}
+
+	reader, record, err := s.config.Vault.DownloadFile(r.Context(), id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "NOT_FOUND", "Quarantine item not found: "+err.Error(), nil)
+		return
+	}
+	defer reader.Close()
+
+	filename := record.OriginalFilename
+	if filename == "" {
+		filename = record.ID + ".bin"
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.Header().Set("Content-Length", strconv.FormatInt(record.FileSizeBytes, 10))
+	w.WriteHeader(http.StatusOK)
+
+	_, _ = io.Copy(w, reader)
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {

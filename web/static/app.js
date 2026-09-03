@@ -263,11 +263,12 @@ async function loadQuarantineTable() {
 
       const restoreBtn = `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;" title="Restore file only (for forensic investigation, do not whitelist)" onclick="restoreSample('${item.id}', false)">Restore</button>`;
       const whitelistBtn = `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:rgba(16,185,129,0.15);color:var(--emerald);border-color:rgba(16,185,129,0.3);margin-left:0.3rem;" title="Mark False Positive and permanently whitelist hash" onclick="restoreSample('${item.id}', true)">Restore + Whitelist</button>`;
+      const downloadBtn = `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:rgba(59,130,246,0.15);color:var(--blue-glowing);border-color:rgba(59,130,246,0.3);margin-left:0.3rem;" title="Download descrambled original file" onclick="downloadSample('${item.id}', '${item.file_name || 'sample.bin'}')">Download</button>`;
       const deleteBtn = `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:rgba(239,68,68,0.15);color:var(--red-glowing);border-color:rgba(239,68,68,0.3);margin-left:0.3rem;" title="Permanently delete payload from vault and database" onclick="deleteSample('${item.id}')">Delete</button>`;
 
       const actionContent = isRestored
-        ? `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;opacity:0.6;" disabled>Restored</button>${deleteBtn}`
-        : `${restoreBtn}${whitelistBtn}${deleteBtn}`;
+        ? `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;opacity:0.6;" disabled>Restored</button>${downloadBtn}${deleteBtn}`
+        : `${restoreBtn}${whitelistBtn}${downloadBtn}${deleteBtn}`;
 
       const shaShort = item.file_sha256 ? item.file_sha256.substring(0, 16) + "..." : "—";
 
@@ -380,6 +381,16 @@ function deleteSample(id) {
       alert("Delete request failed: " + err);
     });
   }
+}
+
+function downloadSample(id, fileName) {
+  const url = `/api/v1/quarantine/download?id=${encodeURIComponent(id)}`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName || "sample.bin";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function formatBytes(bytes) {
