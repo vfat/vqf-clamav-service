@@ -261,11 +261,13 @@ async function loadQuarantineTable() {
         ? `<span class="badge-status online">RESTORED</span>`
         : `<span class="badge-status online" style="background:var(--amber-bg);color:var(--amber-glowing);">QUARANTINED</span>`;
 
-      const actionBtn = isRestored
-        ? `<button class="btn btn-secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem;opacity:0.6;" disabled>Restored</button>`
-        : `<button class="btn btn-secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem;" onclick="restoreSample('${item.id}')">Restore</button>`;
+      const restoreBtn = `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;" title="Restore file only (for forensic investigation, do not whitelist)" onclick="restoreSample('${item.id}', false)">Restore</button>`;
+      const whitelistBtn = `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:rgba(16,185,129,0.15);color:var(--emerald);border-color:rgba(16,185,129,0.3);margin-left:0.3rem;" title="Mark False Positive and permanently whitelist hash" onclick="restoreSample('${item.id}', true)">Restore + Whitelist</button>`;
+      const deleteBtn = `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:rgba(239,68,68,0.15);color:var(--red-glowing);border-color:rgba(239,68,68,0.3);margin-left:0.3rem;" title="Permanently delete payload from vault and database" onclick="deleteSample('${item.id}')">Delete</button>`;
 
-      const deleteBtn = `<button class="btn btn-secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem;background:rgba(239,68,68,0.15);color:var(--red-glowing);border-color:rgba(239,68,68,0.3);margin-left:0.4rem;" onclick="deleteSample('${item.id}')">Delete</button>`;
+      const actionContent = isRestored
+        ? `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;opacity:0.6;" disabled>Restored</button>${deleteBtn}`
+        : `${restoreBtn}${whitelistBtn}${deleteBtn}`;
 
       const shaShort = item.file_sha256 ? item.file_sha256.substring(0, 16) + "..." : "—";
 
@@ -276,7 +278,7 @@ async function loadQuarantineTable() {
           <td class="text-red font-bold">${item.virus_name || "Malware"}</td>
           <td class="font-mono text-dim" title="${item.file_sha256}">${shaShort}</td>
           <td>${statusBadge}</td>
-          <td>${actionBtn}${deleteBtn}</td>
+          <td>${actionContent}</td>
         </tr>
       `;
     }).join("");
@@ -329,20 +331,26 @@ async function loadAuditTable() {
   }
 }
 
-function restoreSample(id) {
-  if (confirm(`Restore quarantine payload ${id} and whitelist hash?`)) {
+function restoreSample(id, autoWhitelist) {
+  const promptMsg = autoWhitelist
+    ? `Restore quarantine payload ${id} AND permanently whitelist its SHA-256 hash?\n\n(Future scans of this exact file will be marked CLEAN).`
+    : `Restore quarantine payload ${id} WITHOUT whitelisting?\n\n(Payload will be marked RESTORED, but the hash will still trigger an alert if scanned again).`;
+
+  if (confirm(promptMsg)) {
     fetch("/api/v1/quarantine/restore", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         quarantine_id: id,
         restored_by: "admin@security.internal",
-        reason: "User verified false positive",
-        auto_whitelist: true
+        reason: autoWhitelist ? "False positive whitelisted via Web Admin UI" : "Forensic extraction via Web Admin UI",
+        auto_whitelist: autoWhitelist
       })
     }).then(res => res.json()).then(data => {
       if (data.success) {
-        alert("File restored successfully & SHA-256 added to whitelist.");
+        alert(autoWhitelist
+          ? "File restored & SHA-256 hash added to whitelist."
+          : "File restored successfully (hash was NOT whitelisted).");
       } else {
         alert("Failed to restore: " + (data.error?.message || "unknown error"));
       }
