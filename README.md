@@ -4,7 +4,7 @@
 > *All-in-One Docker Container • In-Memory Unix Socket Scanning • Built-in Quarantine Vault • Zero-Touch Master Key Security • Multi-Channel Alerting*
 
 [![Go](https://img.shields.io/badge/Go-1.22-00ADD8?style=flat&logo=go)](https://go.dev)
-[![Docker](https://img.shields.io/badge/Docker-Multi--stage-2496ED?style=flat&logo=docker)](https://docker.com)
+[![Docker Hub](https://img.shields.io/badge/Docker%20Hub-vickyfatrian%2Fvqf--clamav--service-2496ED?style=flat&logo=docker)](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service)
 [![TDD](https://img.shields.io/badge/TDD-100%25%20Passed-10b981?style=flat)](file:///.ai-doc/tdd-overview.md)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -148,7 +148,7 @@ Comprehensive technical documentation is maintained under [`.ai-doc/`](file:///.
 - 📐 [**C4 Component Diagrams**](file:///.ai-doc/C4-Component-Diagrams.md)
 - 📋 [**Feature Inventory Matrix**](file:///.ai-doc/Dokumentasi-Fitur.md)
 - 🧭 [**Grouped Use Case Documentation**](file:///.ai-doc/Dokumentasi-Komponen-Usecase.md)
-- 📜 [**REST API Endpoint List**](file:///.ai-doc/daftar-endpoint.md)
+- 📜 [**REST API Endpoint List**](file:///.ai-doc/rest-api-doc/daftar-endpoint.md)
 - 📑 [**REST API Specification & Swimlanes**](file:///.ai-doc/rest-api-doc/)
 - 🎯 [**TDD Control Plane**](file:///.ai-doc/tdd-overview.md)
 - 📚 [**Lampiran Series (L-001 s/d L-006)**](file:///.ai-doc/lampiran/)
