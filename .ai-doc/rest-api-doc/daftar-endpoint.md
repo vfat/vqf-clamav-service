@@ -16,7 +16,9 @@ Setiap endpoint memiliki dokumen spesifikasi teknis detail tersendiri di dalam f
 | `POST` | `/api/v1/scan/file` | Pemindaian file sinkron via multipart file upload dengan instant verdict (`CLEAN` / `INFECTED`). | `Published` | [API-SPEC-01](./API-SPEC-01-POST-+api+v1+scan+file.md) |
 | `POST` | `/api/v1/scan/stream` | Pemindaian raw binary stream chunked tanpa overhead multipart. | `Published` | [API-SPEC-02](./API-SPEC-02-POST-+api+v1+scan+stream.md) |
 | `POST` | `/api/v1/scan/url` | Pemindaian file remote melalui unduhan stream URL publik / S3 (Anti-SSRF). | `Published` | [API-SPEC-12](./API-SPEC-12-POST-+api+v1+scan+url.md) |
-| `POST` | `/api/v1/scan/async` | Pengajuan job pemindaian asinkron dengan webhook callback (`202 Accepted`). | `Draft` | [API-SPEC-13](./API-SPEC-13-POST-+api+v1+scan+async.md) |
+| `POST` | `/api/v1/scan/async` | Pengajuan job pemindaian asinkron dengan webhook callback (`202 Accepted`). | `Published` | [API-SPEC-13](./API-SPEC-13-POST-+api+v1+scan+async.md) |
+| `GET` | `/api/v1/scan/jobs/{id}` | Polling status dan hasil eksekusi job pemindaian asinkron. | `Published` | [API-SPEC-17](./API-SPEC-17-GET-+api+v1+scan+jobs+{id}.md) |
+
 
 ### 2.2. Komponen Quarantine Vault
 

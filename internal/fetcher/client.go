@@ -364,3 +364,43 @@ func (b *boundedReadCloser) Read(p []byte) (int, error) {
 func (b *boundedReadCloser) Close() error {
 	return b.rc.Close()
 }
+
+// Client returns the underlying hardened http.Client configured with Anti-SSRF transport.
+func (f *SafeFetcher) Client() *http.Client {
+	return f.client
+}
+
+// ValidateTargetIP verifies that rawURL parses cleanly, uses http/https, and does not resolve to a blocked IP.
+func (f *SafeFetcher) ValidateTargetIP(ctx context.Context, rawURL string) error {
+	if err := ValidateURL(rawURL); err != nil {
+		return err
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+
+	host := parsed.Hostname()
+	targetIPs, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil {
+		parsedIP := net.ParseIP(host)
+		if parsedIP == nil {
+			return fmt.Errorf("%w: failed resolving host %s: %v", ErrSSRFBlocked, host, err)
+		}
+		targetIPs = []net.IP{parsedIP}
+	}
+
+	for _, ip := range targetIPs {
+		isBlocked := IsBlockedIP(ip)
+		if f.config.AllowLoopbackForTesting && ip.IsLoopback() {
+			isBlocked = false
+		}
+		if isBlocked {
+			return fmt.Errorf("%w: host %s resolves to prohibited address %s", ErrSSRFBlocked, host, ip.String())
+		}
+	}
+
+	return nil
+}
+

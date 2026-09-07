@@ -8,7 +8,7 @@
 | **Storage Path** | `/data/clamav-service.db` (dapat dikonfigurasi via env `DB_PATH`) |
 | **Concurrency Mode** | WAL (*Write-Ahead Logging*) |
 | **Pragma Settings** | `journal_mode(WAL)`, `synchronous(NORMAL)`, `busy_timeout(5000)`, `foreign_keys(ON)` |
-| **Jumlah Tabel** | 6 Tabel (`scan_audit_logs`, `quarantine_records`, `whitelist_signatures`, `api_keys`, `system_settings`, `yara_rules`) |
+| **Jumlah Tabel** | 7 Tabel (`scan_audit_logs`, `quarantine_records`, `whitelist_signatures`, `api_keys`, `system_settings`, `yara_rules`, `scan_jobs`) |
 | **Sumber Kode & Migrasi** | [`internal/storage/sqlite.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/storage/sqlite.go) |
 
 ---
@@ -91,6 +91,22 @@ entity "yara_rules" as YARA {
   *updated_at : DATETIME
 }
 
+entity "scan_jobs" as JOBS {
+  *id : TEXT <<PK>>
+  --
+  *file_name : TEXT
+  *file_size : INTEGER
+  file_sha256 : TEXT
+  *callback_url : TEXT
+  consumer : TEXT
+  *status : TEXT
+  verdict : TEXT
+  virus_name : TEXT
+  error_msg : TEXT
+  *created_at : DATETIME
+  *updated_at : DATETIME
+}
+
 ' Relasi Logical
 QUARANTINE ||..o{ AUDIT : "associated with (quarantine_id)"
 
@@ -115,6 +131,7 @@ QUARANTINE ||..o{ AUDIT : "associated with (quarantine_id)"
 * **`api_keys`**: Berdiri sendiri untuk memvalidasi kredensial autentikasi API consumer.
 * **`system_settings`**: Tabel konfigurasi key-value persisten terenkripsi (misalnya password dashboard UI ter-hash/enkripsi).
 * **`yara_rules`**: Tabel registrasi custom signature YARA berekstensi `.yara` yang dimuat secara zero-downtime oleh daemon ClamAV.
+* **`scan_jobs`**: Tabel antrean dan status pelacakan pemindaian malware asinkron beserta callback URL webhook.
 
 ---
 
@@ -128,4 +145,6 @@ QUARANTINE ||..o{ AUDIT : "associated with (quarantine_id)"
 | `idx_quar_status` | `quarantine_records` | `status` | Mempercepat filtering berkas di UI (`QUARANTINED`, `RESTORED`, `DELETED`). |
 | `idx_quar_expires` | `quarantine_records` | `expires_at` | Mempercepat *background worker* dalam mendeteksi dan menghapus berkas kedaluwarsa. |
 | `idx_yara_active` | `yara_rules` | `is_active` | Mempercepat query filtering aturan YARA aktif. |
+| `idx_jobs_status` | `scan_jobs` | `status` | Mempercepat query antrean job aktif oleh background worker. |
+
 

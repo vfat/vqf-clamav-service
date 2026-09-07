@@ -20,7 +20,9 @@ import (
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
 	"github.com/vfat/vqf-clamav-service/internal/yara"
+	"github.com/vfat/vqf-clamav-service/internal/asyncscan"
 )
+
 
 
 func setupTestServer(t *testing.T) (*Server, *storage.DB) {
@@ -430,6 +432,105 @@ func TestHandler_YARARules_CRUD(t *testing.T) {
 		t.Errorf("expected 0 items after delete, got %d", len(emptyItems))
 	}
 }
+
+func TestHandler_ScanAsync_SubmitAndPoll(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := storage.NewDB(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	spoolDir := filepath.Join(tmpDir, "spool")
+	mockClamd := clamd.NewClient("unix", "/tmp/nonexistent.sock")
+	safeFetcher := fetcher.NewSafeFetcher(fetcher.SafeFetcherConfig{
+		Timeout:                 2 * time.Second,
+		AllowLoopbackForTesting: true,
+	})
+
+	asyncQueue := asyncscan.NewQueue(asyncscan.Config{
+		SpoolDir:      spoolDir,
+		Workers:       1,
+		QueueCapacity: 10,
+	}, db, mockClamd, nil, nil, safeFetcher)
+
+	server := NewServer(ServerConfig{
+		DB:         db,
+		AsyncQueue: asyncQueue,
+		Fetcher:    safeFetcher,
+	})
+
+	// 1. Submit async scan job missing callback_url -> 400 Bad Request
+	bodyMissing := &bytes.Buffer{}
+	writerMissing := multipart.NewWriter(bodyMissing)
+	part, _ := writerMissing.CreateFormFile("file", "test.zip")
+	part.Write([]byte("dummy content"))
+	writerMissing.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scan/async", bodyMissing)
+	req.Header.Set("Content-Type", writerMissing.FormDataContentType())
+	w := httptest.NewRecorder()
+	server.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for missing callback_url, got %d", w.Code)
+	}
+
+	mockWebhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer mockWebhookServer.Close()
+
+	// 2. Submit valid async scan job -> 202 Accepted
+	bodyValid := &bytes.Buffer{}
+	writerValid := multipart.NewWriter(bodyValid)
+	partValid, _ := writerValid.CreateFormFile("file", "archive.zip")
+	partValid.Write([]byte("safe archive file bytes"))
+	writerValid.WriteField("callback_url", mockWebhookServer.URL+"/webhook")
+	writerValid.Close()
+
+
+	reqValid := httptest.NewRequest(http.MethodPost, "/api/v1/scan/async", bodyValid)
+	reqValid.Header.Set("Content-Type", writerValid.FormDataContentType())
+	wValid := httptest.NewRecorder()
+	server.Router().ServeHTTP(wValid, reqValid)
+
+	if wValid.Code != http.StatusAccepted {
+		t.Fatalf("expected status 202 Accepted, got %d. Body: %s", wValid.Code, wValid.Body.String())
+	}
+
+	var acceptedResp map[string]interface{}
+	_ = json.Unmarshal(wValid.Body.Bytes(), &acceptedResp)
+	jobID, _ := acceptedResp["job_id"].(string)
+	if jobID == "" {
+		t.Fatalf("expected job_id in response, got %v", acceptedResp)
+	}
+
+	// 3. Poll job status -> 200 OK
+	reqPoll := httptest.NewRequest(http.MethodGet, "/api/v1/scan/jobs/"+jobID, nil)
+	wPoll := httptest.NewRecorder()
+	server.Router().ServeHTTP(wPoll, reqPoll)
+
+	if wPoll.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK polling job status, got %d", wPoll.Code)
+	}
+
+	var pollResp map[string]interface{}
+	_ = json.Unmarshal(wPoll.Body.Bytes(), &pollResp)
+	jobData, ok := pollResp["data"].(map[string]interface{})
+	if !ok || jobData["job_id"] != jobID {
+		t.Fatalf("unexpected poll data: %v", pollResp)
+	}
+
+	// 4. Poll non-existent job -> 404 Not Found
+	reqNotFound := httptest.NewRequest(http.MethodGet, "/api/v1/scan/jobs/nonexistent_job", nil)
+	wNotFound := httptest.NewRecorder()
+	server.Router().ServeHTTP(wNotFound, reqNotFound)
+
+	if wNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404 for non-existent job, got %d", wNotFound.Code)
+	}
+}
+
 
 
 

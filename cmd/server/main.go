@@ -17,6 +17,8 @@ import (
 	"github.com/vfat/vqf-clamav-service/internal/clamd"
 	"github.com/vfat/vqf-clamav-service/internal/crypto"
 	"github.com/vfat/vqf-clamav-service/internal/grpcserver"
+	"github.com/vfat/vqf-clamav-service/internal/asyncscan"
+	"github.com/vfat/vqf-clamav-service/internal/fetcher"
 	"github.com/vfat/vqf-clamav-service/internal/quarantine"
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
@@ -103,16 +105,36 @@ func main() {
 	yaraMgr := yara.NewManager(yaraRulesDir, db, clamdClient)
 	log.Printf("[YARA] Custom Rules Engine targeting %s", yaraRulesDir)
 
-	// 9. HTTP REST API Server
+	// 9. Asynchronous Scan Queue & Webhook Dispatcher
 	maxScanMB := int64(getEnvInt("MAX_SCAN_SIZE_MB", 100))
 	vault.SetMaxQuarantineBytes(maxScanMB * 1024 * 1024)
+
+	spoolDir := getEnv("SPOOL_DIR", "/data/spool")
+	asyncWorkers := getEnvInt("ASYNC_WORKERS", 2)
+	safeFetcher := fetcher.NewSafeFetcher(fetcher.SafeFetcherConfig{
+		Timeout:  30 * time.Second,
+		MaxBytes: maxScanMB * 1024 * 1024,
+	})
+	asyncQueue := asyncscan.NewQueue(asyncscan.Config{
+		SpoolDir:      spoolDir,
+		Workers:       asyncWorkers,
+		QueueCapacity: 200,
+		QuarRetention: quarRetentionDays,
+	}, db, clamdClient, vault, notifier, safeFetcher)
+	asyncQueue.Start(context.Background())
+	log.Printf("[ASYNC] Queue initialized at %s (%d workers)", spoolDir, asyncWorkers)
+
+	// 10. HTTP REST API Server
 	server := api.NewServer(api.ServerConfig{
 		DB:               db,
 		Vault:            vault,
 		Notifier:         notifier,
+
 		Limiter:          limiter,
 		Clamd:            clamdClient,
+		Fetcher:          safeFetcher,
 		YARAManager:      yaraMgr,
+		AsyncQueue:       asyncQueue,
 		RequireAPIKey:    getEnvBool("REQUIRE_API_KEY", false),
 		MaxScanSizeMB:    maxScanMB,
 		RateLimitRPM:     rateLimitRPM,
@@ -178,6 +200,7 @@ func main() {
 
 	sup.Stop()
 	grpcSrv.GracefulStop()
+	asyncQueue.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

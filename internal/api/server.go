@@ -22,6 +22,7 @@ import (
 	"github.com/vfat/vqf-clamav-service/internal/fetcher"
 	"github.com/vfat/vqf-clamav-service/internal/quarantine"
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
+	"github.com/vfat/vqf-clamav-service/internal/asyncscan"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
 	"github.com/vfat/vqf-clamav-service/internal/yara"
 	"github.com/vfat/vqf-clamav-service/web"
@@ -36,6 +37,7 @@ type ServerConfig struct {
 	Clamd            *clamd.Client
 	Fetcher          *fetcher.SafeFetcher
 	YARAManager      *yara.Manager
+	AsyncQueue       *asyncscan.Queue
 	RequireAPIKey    bool
 	MaxScanSizeMB    int64
 	RateLimitRPM     int
@@ -115,6 +117,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/scan/file", s.handleScanFile)
 	s.mux.HandleFunc("POST /api/v1/scan/stream", s.handleScanStream)
 	s.mux.HandleFunc("POST /api/v1/scan/url", s.handleScanURL)
+	s.mux.HandleFunc("POST /api/v1/scan/async", s.handleScanAsync)
+	s.mux.HandleFunc("GET /api/v1/scan/jobs/{id}", s.handleScanJobStatus)
 
 	// Quarantine
 	s.mux.HandleFunc("GET /api/v1/quarantine", s.handleQuarantineList)
@@ -994,3 +998,96 @@ func (s *Server) handleYARADelete(w http.ResponseWriter, r *http.Request) {
 		"rule_id": id,
 	})
 }
+
+func (s *Server) handleScanAsync(w http.ResponseWriter, r *http.Request) {
+	if s.config.AsyncQueue == nil {
+		respondError(w, http.StatusServiceUnavailable, "ASYNC_SCAN_UNAVAILABLE", "Async scan queue engine is not configured", nil)
+		return
+	}
+
+	maxBytes := s.config.MaxScanSizeMB * 1024 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+
+	if err := r.ParseMultipartForm(maxBytes); err != nil {
+		respondError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "Uploaded file exceeds maximum limit", nil)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Missing 'file' multipart form field", nil)
+		return
+	}
+	defer file.Close()
+
+	callbackURL := strings.TrimSpace(r.FormValue("callback_url"))
+	if callbackURL == "" {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Missing 'callback_url' form field", nil)
+		return
+	}
+
+	consumerName := extractConsumer(r)
+
+	job, err := s.config.AsyncQueue.SubmitJob(r.Context(), header.Filename, file, header.Size, callbackURL, consumerName)
+	if err != nil {
+		errStr := err.Error()
+		if strings.Contains(errStr, "invalid callback_url") || strings.Contains(errStr, "prohibited address") || strings.Contains(errStr, "SSRF") {
+			respondError(w, http.StatusBadRequest, "SSRF_ATTEMPT_BLOCKED", errStr, nil)
+			return
+		}
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", errStr, nil)
+		return
+	}
+
+	respondJSON(w, http.StatusAccepted, map[string]interface{}{
+		"success": true,
+		"status":  "ACCEPTED",
+		"job_id":  job.ID,
+		"message": "Scan job queued. Verdict will be posted to callback_url.",
+		"data": map[string]interface{}{
+			"job_id":       job.ID,
+			"file_name":    job.FileName,
+			"file_size":    job.FileSize,
+			"callback_url": job.CallbackURL,
+			"status":       job.Status,
+			"created_at":   job.CreatedAt.Format(time.RFC3339),
+		},
+	})
+}
+
+func (s *Server) handleScanJobStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = r.URL.Query().Get("id")
+	}
+
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Missing job id parameter", nil)
+		return
+	}
+
+	job, err := s.config.DB.GetScanJob(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "JOB_NOT_FOUND", fmt.Sprintf("Scan job with id '%s' not found", id), nil)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"job_id":       job.ID,
+			"file_name":    job.FileName,
+			"file_size":    job.FileSize,
+			"file_sha256":  job.FileSHA256,
+			"callback_url": job.CallbackURL,
+			"consumer":     job.Consumer,
+			"status":       job.Status,
+			"verdict":      job.Verdict,
+			"virus_name":   job.VirusName,
+			"error_msg":    job.ErrorMsg,
+			"created_at":   job.CreatedAt.Format(time.RFC3339),
+			"updated_at":   job.UpdatedAt.Format(time.RFC3339),
+		},
+	})
+}
+

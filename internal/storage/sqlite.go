@@ -70,6 +70,22 @@ type YARARule struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// ScanJob represents an asynchronous scanning job record.
+type ScanJob struct {
+	ID          string    `json:"id"`
+	FileName    string    `json:"file_name"`
+	FileSize    int64     `json:"file_size"`
+	FileSHA256  string    `json:"file_sha256"`
+	CallbackURL string    `json:"callback_url"`
+	Consumer    string    `json:"consumer"`
+	Status      string    `json:"status"` // QUEUED, PROCESSING, COMPLETED, FAILED
+	Verdict     string    `json:"verdict"` // CLEAN, INFECTED, ERROR
+	VirusName   string    `json:"virus_name,omitempty"`
+	ErrorMsg    string    `json:"error_msg,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // NewDB initializes SQLite connection with WAL mode and runs table migrations.
 func NewDB(dbPath string) (*DB, error) {
 	if dbPath == "" {
@@ -176,6 +192,22 @@ func (db *DB) migrate() error {
 		updated_at  DATETIME NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS idx_yara_active ON yara_rules(is_active);
+
+	CREATE TABLE IF NOT EXISTS scan_jobs (
+		id           TEXT PRIMARY KEY,
+		file_name    TEXT NOT NULL,
+		file_size    INTEGER NOT NULL,
+		file_sha256  TEXT,
+		callback_url TEXT NOT NULL,
+		consumer     TEXT,
+		status       TEXT NOT NULL,
+		verdict      TEXT,
+		virus_name   TEXT,
+		error_msg    TEXT,
+		created_at   DATETIME NOT NULL,
+		updated_at   DATETIME NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_jobs_status ON scan_jobs(status);
 	`
 	_, err := db.conn.Exec(schema)
 	return err
@@ -572,6 +604,48 @@ func (db *DB) GetYARARule(id string) (*YARARule, error) {
 // DeleteYARARule removes a YARA rule by ID.
 func (db *DB) DeleteYARARule(id string) error {
 	_, err := db.conn.Exec("DELETE FROM yara_rules WHERE id = ?", id)
+	return err
+}
+
+// InsertScanJob inserts a new asynchronous scan job.
+func (db *DB) InsertScanJob(j ScanJob) error {
+	query := `
+	INSERT INTO scan_jobs (id, file_name, file_size, file_sha256, callback_url, consumer, status, verdict, virus_name, error_msg, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err := db.conn.Exec(query, j.ID, j.FileName, j.FileSize, j.FileSHA256, j.CallbackURL, j.Consumer, j.Status, j.Verdict, j.VirusName, j.ErrorMsg, j.CreatedAt.Format(time.RFC3339), j.UpdatedAt.Format(time.RFC3339))
+	return err
+}
+
+// GetScanJob fetches a scan job by ID.
+func (db *DB) GetScanJob(id string) (*ScanJob, error) {
+	query := `SELECT id, file_name, file_size, file_sha256, callback_url, consumer, status, verdict, virus_name, error_msg, created_at, updated_at FROM scan_jobs WHERE id = ?`
+	row := db.conn.QueryRow(query, id)
+
+	var j ScanJob
+	var sha, consumer, verdict, virusName, errorMsg sql.NullString
+	var createdStr, updatedStr string
+	if err := row.Scan(&j.ID, &j.FileName, &j.FileSize, &sha, &j.CallbackURL, &consumer, &j.Status, &verdict, &virusName, &errorMsg, &createdStr, &updatedStr); err != nil {
+		return nil, err
+	}
+	j.FileSHA256 = sha.String
+	j.Consumer = consumer.String
+	j.Verdict = verdict.String
+	j.VirusName = virusName.String
+	j.ErrorMsg = errorMsg.String
+	j.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+	j.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
+	return &j, nil
+}
+
+// UpdateScanJobStatus updates the status, verdict, hash, and error message of a job.
+func (db *DB) UpdateScanJobStatus(id, status, verdict, virusName, errorMsg, sha256 string) error {
+	query := `
+	UPDATE scan_jobs 
+	SET status = ?, verdict = ?, virus_name = ?, error_msg = ?, file_sha256 = ?, updated_at = ?
+	WHERE id = ?
+	`
+	_, err := db.conn.Exec(query, status, verdict, virusName, errorMsg, sha256, time.Now().UTC().Format(time.RFC3339), id)
 	return err
 }
 

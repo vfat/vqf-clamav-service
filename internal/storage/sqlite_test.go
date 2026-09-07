@@ -256,3 +256,56 @@ func TestYARARules_CRUD(t *testing.T) {
 	}
 }
 
+func TestScanJobs_CRUD(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_jobs.db")
+
+	db, err := NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("failed to init DB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().UTC()
+	job := ScanJob{
+		ID:          "job_123456",
+		FileName:    "sample_archive.zip",
+		FileSize:    10240,
+		FileSHA256:  "",
+		CallbackURL: "https://example.com/webhook",
+		Consumer:    "test-consumer",
+		Status:      "QUEUED",
+		Verdict:     "",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	if err := db.InsertScanJob(job); err != nil {
+		t.Fatalf("InsertScanJob failed: %v", err)
+	}
+
+	// Fetch
+	fetched, err := db.GetScanJob("job_123456")
+	if err != nil {
+		t.Fatalf("GetScanJob failed: %v", err)
+	}
+	if fetched.ID != job.ID || fetched.Status != "QUEUED" {
+		t.Errorf("unexpected job data: %+v", fetched)
+	}
+
+	// Update status
+	sha := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	if err := db.UpdateScanJobStatus("job_123456", "COMPLETED", "CLEAN", "", "", sha); err != nil {
+		t.Fatalf("UpdateScanJobStatus failed: %v", err)
+	}
+
+	updated, err := db.GetScanJob("job_123456")
+	if err != nil {
+		t.Fatalf("GetScanJob after update failed: %v", err)
+	}
+	if updated.Status != "COMPLETED" || updated.Verdict != "CLEAN" || updated.FileSHA256 != sha {
+		t.Errorf("unexpected updated job: %+v", updated)
+	}
+}
+
+
