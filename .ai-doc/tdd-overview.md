@@ -1,8 +1,8 @@
 # TDD Overview — `clamav-service`
 
 > **Active Policy:** `TDD: Enabled`  
-> **Last Updated:** 2026-09-07 09:52  
-> **Execution Status:** 12/12 Targets Completed (`100% GREEN`)
+> **Last Updated:** 2026-09-07 12:23  
+> **Execution Status:** 13/13 Targets Completed (`100% GREEN`)
 
 ---
 
@@ -22,6 +22,7 @@
 | **`TDD-009`** | `internal/scanner` | Archive Inspection & Zip-Bomb Decompression Limiter | 🟢 **GREEN** | `internal/scanner/archive_test.go` | `internal/scanner/archive.go` | `PASS (0.01s)` |
 | **`TDD-010`** | `internal/fetcher` | Safe HTTP Client Transport (Anti-SSRF IP Filter & DNS Rebinding Guard) | 🟢 **GREEN** | `internal/fetcher/client_test.go` | `internal/fetcher/client.go` | `PASS (0.01s)` |
 | **`TDD-011`** | `internal/api` | Handler `POST /api/v1/scan/url` & Streaming Pipe | 🟢 **GREEN** | `internal/api/handler_test.go` | `internal/api/server.go` | `PASS (0.23s)` |
+| **`TDD-012`** | `internal/grpcserver` | gRPC Streaming Scanner Server, Interceptors & Health | 🟢 **GREEN** | `internal/grpcserver/server_test.go` | `internal/grpcserver/server.go` | `PASS (0.19s)` |
 
 ---
 

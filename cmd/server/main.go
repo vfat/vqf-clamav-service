@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"github.com/vfat/vqf-clamav-service/internal/api"
 	"github.com/vfat/vqf-clamav-service/internal/clamd"
 	"github.com/vfat/vqf-clamav-service/internal/crypto"
+	"github.com/vfat/vqf-clamav-service/internal/grpcserver"
 	"github.com/vfat/vqf-clamav-service/internal/quarantine"
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
@@ -125,6 +127,32 @@ func main() {
 		WriteTimeout: 60 * time.Second,
 	}
 
+	// 9. gRPC Streaming Server
+	grpcPort := getEnv("GRPC_PORT", "9090")
+	grpcSrv := grpcserver.NewServer(grpcserver.Config{
+		DB:            db,
+		Vault:         vault,
+		Notifier:      notifier,
+		Limiter:       limiter,
+		Clamd:         clamdClient,
+		AuthMode:      getEnv("AUTH_MODE", "none"),
+		BearerToken:   getEnv("AUTH_BEARER_TOKEN", ""),
+		MaxScanSizeMB: maxScanMB,
+		QuarRetention: quarRetentionDays,
+	})
+
+	grpcLis, err := net.Listen("tcp", ":"+grpcPort)
+	if err != nil {
+		log.Fatalf("[gRPC FATAL] Failed to listen on port %s: %v", grpcPort, err)
+	}
+
+	go func() {
+		log.Printf("[gRPC] Server listening on 0.0.0.0:%s", grpcPort)
+		if err := grpcSrv.Serve(grpcLis); err != nil {
+			log.Printf("[gRPC INFO] Server stopped: %v", err)
+		}
+	}()
+
 	// Graceful Shutdown Channel
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -140,6 +168,7 @@ func main() {
 	log.Println("[SHUTDOWN] Received termination signal. Initiating graceful shutdown...")
 
 	sup.Stop()
+	grpcSrv.GracefulStop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

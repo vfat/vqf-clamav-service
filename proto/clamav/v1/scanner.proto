@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package clamav.v1;
+
+option go_package = "github.com/vfat/vqf-clamav-service/proto/clamav/v1;clamavv1";
+
+// ScannerService provides high-throughput binary scanning over gRPC.
+service ScannerService {
+  // ScanStream accepts a client stream of chunks and returns a final scan verdict.
+  rpc ScanStream(stream ScanChunkRequest) returns (ScanVerdictResponse);
+
+  // HealthCheck returns the serving status of the antivirus gRPC daemon.
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message FileMetadata {
+  string file_name = 1;
+  string consumer_name = 2;
+  string expected_sha256 = 3;
+}
+
+message ScanChunkRequest {
+  oneof payload {
+    FileMetadata metadata = 1;
+    bytes chunk_data = 2;
+  }
+}
+
+enum VerdictStatus {
+  VERDICT_UNSPECIFIED = 0;
+  CLEAN = 1;
+  INFECTED = 2;
+}
+
+message ThreatInfo {
+  string virus_name = 1;
+  string severity = 2;
+  string action_taken = 3;
+  string quarantine_id = 4;
+}
+
+message ScanData {
+  string file_name = 1;
+  int64 file_size = 2;
+  string file_sha256 = 3;
+  int64 scan_duration_ms = 4;
+  string scanned_at = 5;
+  bool whitelisted = 6;
+}
+
+message ScanVerdictResponse {
+  bool success = 1;
+  VerdictStatus verdict = 2;
+  ThreatInfo threat = 3;
+  ScanData data = 4;
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+  ServingStatus status = 1;
+  string version = 2;
+  string engine = 3;
+}
