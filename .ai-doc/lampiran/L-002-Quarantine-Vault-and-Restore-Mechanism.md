@@ -5,15 +5,16 @@
 | **Kode Lampiran** | `L-002` |
 | **Nama Lampiran** | Arsitektur Quarantine Vault & Mekanisme File Restore |
 | **Target Service** | `clamav-service` |
-| **Status** | Approved |
-| **Versi** | 1.0 |
+| **Status** | Approved & Hardened |
+| **Versi** | 1.1 |
 | **Tanggal Pembuatan** | 2026-09-02 |
+| **Tanggal Pembaruan** | 2026-09-04 |
 | **Dokumen Utama** | [`.ai-doc/project-overview.md`](file:///home/ubuntu/workspace/plan/clamav-service/.ai-doc/project-overview.md) |
 
 ---
 
 ## 1. Ringkasan
-Dokumen ini merinci arsitektur ruang penyimpanan terisolasi (*Quarantine Vault*), format netralisasi file terinfeksi, mekanisme retensi kadaluarsa otomatis, serta dua model pemulihan (*restore*) file jika terjadi kasus *false-positive*, termasuk pencegahan siklus karantina berulang (*Anti Re-Quarantine Hash Whitelisting*).
+Dokumen ini merinci arsitektur ruang penyimpanan terisolasi (*Quarantine Vault*), format netralisasi dan enkripsi kriptografis terautentikasi (AES-256-GCM dengan Magic Header `VQF_AESGCM_V1\n`), mitigasi *memory bomb*, mekanisme retensi kadaluarsa otomatis, serta dua model pemulihan (*restore*) file jika terjadi kasus *false-positive*, termasuk pencegahan siklus karantina berulang (*Anti Re-Quarantine Hash Whitelisting*).
 
 ---
 
@@ -26,7 +27,30 @@ Dokumen ini merinci arsitektur ruang penyimpanan terisolasi (*Quarantine Vault*)
   File yang terinfeksi **tidak boleh disimpan dengan nama atau ekstensi aslinya** untuk mencegah eksekusi tidak sengaja oleh OS atau tool lain.
   * *Pola Penamaan:* `Q-{YYYYMMDD}-{ULID}.quarantine`
   * *Contoh:* `Q-20260902-01J7XYZ894K2019.quarantine`
-* **Scrambling / Enkripsi:** Konten biner di-scramble (XOR mask / AES-GCM ringan) sebelum ditulis ke disk.
+
+### 2.2. Format Biner di Disk & Authenticated Encryption (AES-256-GCM)
+Setiap file karantina baru di disk tersimpan dalam format *self-describing* dengan struktur biner:
+
+```
+┌───────────────────────────┬──────────────┬──────────────────────────┬──────────────┐
+│ Magic Header (14 bytes)   │ Nonce (12 B) │ Ciphertext (Variable)    │ Tag (16 B)   │
+│ "VQF_AESGCM_V1\n"         │ CSPRNG       │ AES-256-GCM Encrypted    │ Poly1305 GCM │
+└───────────────────────────┴──────────────┴──────────────────────────┴──────────────┘
+```
+
+1. **Magic Header (`VQF_AESGCM_V1\n`):** Prefix statis 14-byte di awal file sebagai identitas formal bahwa payload terenkripsi menggunakan AES-256-GCM V1.
+2. **Kunci Enkripsi (Master Key):** Menggunakan 256-bit symmetric key yang dikelola oleh `internal/crypto.EnsureMasterKey` dan diinjeksi via variabel `ENCRYPTION_KEY`.
+3. **Dual Fallback Reader (Backward Compatibility):**
+   * Saat restore/download, reader membaca 14 byte pertama.
+   * Jika cocok dengan `VQF_AESGCM_V1\n`, payload didekripsi via `crypto.DecryptAESGCMBytes`.
+   * Jika tidak ada header (file lama sebelum migrasi), reader otomatis fallback ke algoritma de-scramble XOR `0xA5` legacy.
+   * Menjamin **Zero Data Loss** tanpa memerlukan migrasi batch file di disk.
+
+### 2.3. Safeguard Anti-Memory Bomb
+Untuk mencegah serangan kehabisan memori (*OOM*) akibat dekompresi zip-bomb atau stream file tak terbatas:
+* Reader dibungkus dengan `io.LimitReader(r, MaxQuarantineBytes + 1)`.
+* Batas ukuran dikonfigurasi melalui `SetMaxQuarantineBytes(limit)` selaras dengan `MAX_SCAN_SIZE_MB` (default 100 MB).
+* File yang melampaui batas kuota langsung ditolak dengan error sebelum heap RAM Go membengkak.
 
 ---
 
@@ -92,7 +116,7 @@ ke browser Security Admin        tembak webhook event ke consumer
 
 ### 5.1. Mode A: Direct Admin Download (Manual Recovery)
 * **Endpoint:** `POST /api/v1/quarantine/:id/restore?mode=download`
-* **Cara Kerja:** Service membaca file `.quarantine`, melakukan de-scramble, dan mengembalikan file biner asli via HTTP stream dengan header `Content-Disposition: attachment; filename="invoice.pdf"`.
+* **Cara Kerja:** Service membaca file `.quarantine`, melakukan autentikasi & dekripsi kriptografis AES-256-GCM (atau dynamic fallback de-scramble untuk file legacy), dan mengalirkan kembali file biner asli via HTTP stream dengan header `Content-Disposition: attachment; filename="invoice.pdf"`.
 
 ### 5.2. Mode B: Target Callback / S3 Push (Automated Re-Dispatch)
 * **Endpoint:** `POST /api/v1/quarantine/:id/restore`

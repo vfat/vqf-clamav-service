@@ -6,9 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +19,7 @@ import (
 	"github.com/vfat/vqf-clamav-service/internal/alert"
 	"github.com/vfat/vqf-clamav-service/internal/clamd"
 	"github.com/vfat/vqf-clamav-service/internal/crypto"
+	"github.com/vfat/vqf-clamav-service/internal/fetcher"
 	"github.com/vfat/vqf-clamav-service/internal/quarantine"
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
@@ -29,6 +33,7 @@ type ServerConfig struct {
 	Notifier         *alert.Notifier
 	Limiter          *ratelimit.Limiter
 	Clamd            *clamd.Client
+	Fetcher          *fetcher.SafeFetcher
 	RequireAPIKey    bool
 	MaxScanSizeMB    int64
 	RateLimitRPM     int
@@ -64,6 +69,12 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 	if cfg.UIPassword == "" {
 		cfg.UIPassword = "123456"
+	}
+	if cfg.Fetcher == nil {
+		cfg.Fetcher = fetcher.NewSafeFetcher(fetcher.SafeFetcherConfig{
+			Timeout:  30 * time.Second,
+			MaxBytes: cfg.MaxScanSizeMB * 1024 * 1024,
+		})
 	}
 
 	s := &Server{
@@ -101,6 +112,7 @@ func (s *Server) routes() {
 	// Scanning
 	s.mux.HandleFunc("POST /api/v1/scan/file", s.handleScanFile)
 	s.mux.HandleFunc("POST /api/v1/scan/stream", s.handleScanStream)
+	s.mux.HandleFunc("POST /api/v1/scan/url", s.handleScanURL)
 
 	// Quarantine
 	s.mux.HandleFunc("GET /api/v1/quarantine", s.handleQuarantineList)
@@ -328,6 +340,219 @@ func (s *Server) handleScanFile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleScanStream(w http.ResponseWriter, r *http.Request) {
 	s.handleScanFile(w, r)
+}
+
+type scanURLRequest struct {
+	URL            string `json:"url"`
+	ExpectedSHA256 string `json:"expected_sha256"`
+}
+
+func (s *Server) handleScanURL(w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
+
+	if r.Body == nil {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Missing request body", nil)
+		return
+	}
+
+	var reqBody scanURLRequest
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Invalid JSON request body", nil)
+		return
+	}
+
+	reqBody.URL = strings.TrimSpace(reqBody.URL)
+	if reqBody.URL == "" {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Field 'url' is required", nil)
+		return
+	}
+
+	if len(reqBody.URL) > 2048 {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Field 'url' exceeds maximum length of 2048 characters", nil)
+		return
+	}
+
+	if err := fetcher.ValidateURL(reqBody.URL); err != nil {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", err.Error(), nil)
+		return
+	}
+
+	// Fetch remote target with Anti-SSRF protection
+	fetchCtx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
+	defer cancel()
+
+	fetchRes, err := s.config.Fetcher.Fetch(fetchCtx, reqBody.URL)
+	if err != nil {
+		if errors.Is(err, fetcher.ErrSSRFBlocked) {
+			respondError(w, http.StatusBadRequest, "SSRF_ATTEMPT_BLOCKED", "The provided target URL resolves to a prohibited private, loopback, or cloud-metadata IP address", map[string]interface{}{
+				"target_url": reqBody.URL,
+				"policy":     "RFC1918, Loopback, and Link-Local IPs are strictly forbidden",
+			})
+			return
+		}
+		if errors.Is(err, fetcher.ErrInvalidScheme) {
+			respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", err.Error(), nil)
+			return
+		}
+		if errors.Is(err, fetcher.ErrTooManyRedirects) {
+			respondError(w, http.StatusBadRequest, "TOO_MANY_REDIRECTS", "Redirect limit exceeded", nil)
+			return
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			respondError(w, http.StatusGatewayTimeout, "DOWNLOAD_TIMEOUT", "Failed to stream remote file within the allowed window", nil)
+			return
+		}
+		respondError(w, http.StatusBadGateway, "DOWNLOAD_FAILED", fmt.Sprintf("Failed to download remote file: %v", err), nil)
+		return
+	}
+	defer fetchRes.Body.Close()
+
+	if fetchRes.StatusCode < 200 || fetchRes.StatusCode >= 300 {
+		respondError(w, http.StatusBadGateway, "DOWNLOAD_FAILED", fmt.Sprintf("Remote server responded with status code %d", fetchRes.StatusCode), nil)
+		return
+	}
+
+	payload, err := io.ReadAll(fetchRes.Body)
+	if err != nil {
+		if errors.Is(err, fetcher.ErrPayloadTooLarge) {
+			respondError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", fmt.Sprintf("Remote file exceeds the configured maximum scanning size limit (%d MB)", s.config.MaxScanSizeMB), nil)
+			return
+		}
+		respondError(w, http.StatusBadGateway, "DOWNLOAD_FAILED", fmt.Sprintf("Failed reading remote file stream: %v", err), nil)
+		return
+	}
+
+	hasher := sha256.New()
+	hasher.Write(payload)
+	fileHash := hex.EncodeToString(hasher.Sum(nil))
+
+	// Verify expected SHA256 checksum if provided
+	if reqBody.ExpectedSHA256 != "" && !strings.EqualFold(reqBody.ExpectedSHA256, fileHash) {
+		respondError(w, http.StatusBadRequest, "CHECKSUM_MISMATCH", fmt.Sprintf("Downloaded file SHA256 (%s) does not match expected checksum (%s)", fileHash, reqBody.ExpectedSHA256), map[string]interface{}{
+			"computed_sha256": fileHash,
+			"expected_sha256": reqBody.ExpectedSHA256,
+		})
+		return
+	}
+
+	// Determine file name from URL
+	fileName := "remote_file"
+	if parsed, err := url.Parse(reqBody.URL); err == nil {
+		base := filepath.Base(parsed.Path)
+		if base != "" && base != "." && base != "/" {
+			fileName = base
+		}
+	}
+
+	// Check Whitelist
+	if isWhitelisted, _ := s.config.DB.IsWhitelisted(fileHash); isWhitelisted {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success":     true,
+			"verdict":     "CLEAN",
+			"whitelisted": true,
+			"data": map[string]interface{}{
+				"source_url":       reqBody.URL,
+				"file_name":        fileName,
+				"file_size":        len(payload),
+				"file_sha256":      fileHash,
+				"scan_duration_ms": time.Since(startTime).Milliseconds(),
+				"scanned_at":       time.Now().UTC().Format(time.RFC3339),
+			},
+		})
+		return
+	}
+
+	// Scan with Clamd daemon
+	scanCtx, scanCancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer scanCancel()
+
+	scanRes, err := s.config.Clamd.ScanStream(scanCtx, bytes.NewReader(payload))
+	if err != nil {
+		respondError(w, http.StatusServiceUnavailable, "ENGINE_UNAVAILABLE", "Antivirus daemon unavailable or timed out", nil)
+		return
+	}
+
+	durationMs := time.Since(startTime).Milliseconds()
+	consumerName := extractConsumer(r)
+
+	if scanRes.IsClean() {
+		_ = s.config.DB.InsertScanAuditLog(storage.ScanAuditLog{
+			ID:             fmt.Sprintf("audit_%d", time.Now().UnixNano()),
+			Timestamp:      time.Now().UTC(),
+			ConsumerName:   consumerName,
+			ClientIP:       extractIP(r),
+			FileName:       fileName,
+			FileSizeBytes:  int64(len(payload)),
+			FileSHA256:     fileHash,
+			Verdict:        "CLEAN",
+			ScanDurationMs: durationMs,
+		})
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"verdict": "CLEAN",
+			"data": map[string]interface{}{
+				"source_url":       reqBody.URL,
+				"file_name":        fileName,
+				"file_size":        len(payload),
+				"file_sha256":      fileHash,
+				"scan_duration_ms": durationMs,
+				"scanned_at":       time.Now().UTC().Format(time.RFC3339),
+			},
+		})
+		return
+	}
+
+	// INFECTED: Quarantine & Alert
+	quarRec, _ := s.config.Vault.QuarantineFile(r.Context(), fileName, consumerName, scanRes.VirusName, bytes.NewReader(payload), s.config.QuarRetention)
+	quarID := ""
+	if quarRec != nil {
+		quarID = quarRec.ID
+	}
+
+	_ = s.config.DB.InsertScanAuditLog(storage.ScanAuditLog{
+		ID:             fmt.Sprintf("audit_%d", time.Now().UnixNano()),
+		Timestamp:      time.Now().UTC(),
+		ConsumerName:   consumerName,
+		ClientIP:       extractIP(r),
+		FileName:       fileName,
+		FileSizeBytes:  int64(len(payload)),
+		FileSHA256:     fileHash,
+		Verdict:        "INFECTED",
+		VirusName:      scanRes.VirusName,
+		ScanDurationMs: durationMs,
+		QuarantineID:   quarID,
+	})
+
+	if s.config.Notifier != nil {
+		_ = s.config.Notifier.DispatchThreat(r.Context(), alert.ThreatAlert{
+			VirusName:      scanRes.VirusName,
+			FileName:       fileName,
+			FileSizeBytes:  int64(len(payload)),
+			FileSHA256:     fileHash,
+			QuarantineID:   quarID,
+			SourceConsumer: consumerName,
+			DetectedAt:     time.Now().UTC(),
+		})
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"verdict": "INFECTED",
+		"threat": map[string]interface{}{
+			"virus_name":    scanRes.VirusName,
+			"severity":      "HIGH",
+			"action_taken":  "QUARANTINED",
+			"quarantine_id": quarID,
+		},
+		"data": map[string]interface{}{
+			"source_url":       reqBody.URL,
+			"file_name":        fileName,
+			"file_size":        len(payload),
+			"file_sha256":      fileHash,
+			"scan_duration_ms": durationMs,
+		},
+	})
 }
 
 func (s *Server) handleQuarantineList(w http.ResponseWriter, r *http.Request) {

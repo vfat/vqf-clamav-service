@@ -15,7 +15,7 @@ Setiap endpoint memiliki dokumen spesifikasi teknis detail tersendiri di dalam f
 |---|---|---|---|---|
 | `POST` | `/api/v1/scan/file` | Pemindaian file sinkron via multipart file upload dengan instant verdict (`CLEAN` / `INFECTED`). | `Published` | [API-SPEC-01](./API-SPEC-01-POST-+api+v1+scan+file.md) |
 | `POST` | `/api/v1/scan/stream` | Pemindaian raw binary stream chunked tanpa overhead multipart. | `Published` | [API-SPEC-02](./API-SPEC-02-POST-+api+v1+scan+stream.md) |
-| `POST` | `/api/v1/scan/url` | Pemindaian file remote melalui unduhan stream URL publik / S3. | `Draft` | [API-SPEC-12](./API-SPEC-12-POST-+api+v1+scan+url.md) |
+| `POST` | `/api/v1/scan/url` | Pemindaian file remote melalui unduhan stream URL publik / S3 (Anti-SSRF). | `Published` | [API-SPEC-12](./API-SPEC-12-POST-+api+v1+scan+url.md) |
 | `POST` | `/api/v1/scan/async` | Pengajuan job pemindaian asinkron dengan webhook callback (`202 Accepted`). | `Draft` | [API-SPEC-13](./API-SPEC-13-POST-+api+v1+scan+async.md) |
 
 ### 2.2. Komponen Quarantine Vault
@@ -51,7 +51,7 @@ Setiap endpoint memiliki dokumen spesifikasi teknis detail tersendiri di dalam f
 
 ## 3. Catatan Validitas
 - Seluruh endpoint dengan status `Published` telah terhubung langsung ke handler aktif di router [`internal/api/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/server.go) dan database SQLite.
-- Endpoint dengan status `Draft` (`/scan/url`, `/scan/async`) terdaftar pada blueprint arsitektur untuk rilis berikutnya.
+- Endpoint dengan status `Draft` (`/scan/async`) terdaftar pada blueprint arsitektur untuk rilis berikutnya.
 
 ---
 

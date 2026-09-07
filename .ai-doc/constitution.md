@@ -350,3 +350,42 @@ Recommended template usage:
 - `template/endpoint-list-document-template.md`
 - `template/swimlane-diagram-template.md`
 - `template/rest-api-spec-template.md`
+
+## 21. Brainstorming Add-On Protocol & Mandatory HALT Pattern Rule
+
+> **Policy:** `Brainstorming: Interactive & Anti-Auto-Pilot Strictly Enforced`  
+> **Reference:** `add-on/brainstorming/workflow.md`, `mode-moderator.md`, `steps/`
+
+Untuk setiap sesi brainstorming, agent **DILARANG KERAS melakukan auto-pilot** (mengarang sendiri percakapan tim, langsung mengambil keputusan sepihak, men-generate MoM/Discussion Summary di awal, atau memutakhirkan file progress/3P tanpa keterlibatan interaktif user). Agent **WAJIB** mematuhi 3-step lifecycle dengan pola **HALT** di setiap checkpoint:
+
+### A. Step 1: Session Setup (Checkpoint 1 — HALT)
+1. **Pemilihan Mode Moderator:**  
+   Agent menganalisis topik dan merekomendasikan mode (Eksploratif / Sherin, Analitis-Evidence / Manda, atau Pengambil Keputusan Aplikatif / Dinda). Agent **WAJIB HALT** menunggu user memilih/menyetujui mode.
+2. **Breakdown Sub-Topik & Rekomendasi Teknik:**  
+   Pecah topik menjadi sub-topik terfokus dan usulkan teknik brainstorming yang relevan.
+3. **Konfirmasi Peserta (Persona):**  
+   Muat persona dari `.ai-doc/personas/list.md` dan tawarkan partisipasi persona kepada user.
+4. **Tampilkan YAML Setup & HALT:**  
+   Tampilkan ringkasan konfigurasi sesi dalam format YAML dan **WAJIB BERHENTI (HALT)**. Dilarang keras melangkah ke Step 2 sebelum user memberikan konfirmasi eksplisit (`Setuju` / `Adjust`).
+
+### B. Step 2: Interactive Facilitation Loop (Checkpoint 2 — HALT per Iterasi)
+1. **Fasilitasi Bertahap (One Technique/Prompt at a Time):**  
+   Satu prompt per interaksi. Lempar pertanyaan terarah sesuai teknik ke sub-topik aktif.
+2. **Peran Agent & Persona:**  
+   Agent bertindak sebagai **fasilitator**, bukan pengambil keputusan. Persona aktif memberikan tanggapan sesuai blueprint/karakternya masing-masing.
+3. **Kedaulatan Keputusan Ada pada User:**  
+   User yang menentukan apakah suatu ide di-`approve`, `reject`, atau `modified`. Setiap ide dicatat dengan status yang jelas secara `append-only`.
+4. **Mandatory HALT Point:**  
+   Setelah ide ditanggapi, agent **WAJIB HALT** dan menanyakan:  
+   > *"Lanjut eksplorasi sub-topik ini / Ganti sub-topik / Selesai?"*  
+   **Dilarang keras berasumsi atau langsung lanjut tanpa aba-aba user.**
+
+### C. Step 3: Wrap-Up & Dokumentasi Akhir (Hanya atas Perintah User)
+1. Step 3 **HANYA** boleh dijalankan jika user menyatakan "selesai" atau memilih opsi "Selesai" pada prompt HALT.
+2. Lakukan rekapitulasi semua ide (`approved`/`rejected`/`modified`) dan minta konfirmasi user atas daftar keputusan dan action item final.
+3. Setelah konfirmasi, generate artefak resmi di `.ai-doc/brainstorming/`:
+   - `mom-{YYYY-MM-DD}-{topic-slug}.md`
+   - `discussion-{subtopic-slug}-{YYYY-MM-DD}.md`
+4. Perbarui progress pada `.ai-doc/3p.md`.
+
+**Pelanggaran Konstitusi:** Men-generate MoM/Discussion Summary atau memodifikasi file fungsional proyek sebelum proses interaktif Step 2 diselesaikan bersama user adalah **pelanggaran fatal** terhadap integritas proses dokumentasi.

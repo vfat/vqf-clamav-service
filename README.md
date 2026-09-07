@@ -14,17 +14,18 @@
 
 1. **⚡ Zero-Disk-I/O In-Memory Streaming**: File payloads are piped directly to ClamAV daemon via Unix Domain Socket (`zINSTREAM\0` chunked streaming), eliminating disk overhead and providing sub-50ms verdict latencies.
 2. **🔐 Zero-Touch Master Key & AES-256-GCM**: Auto-generates a cryptographic 256-bit key on first cold start and injects `ENCRYPTION_KEY` into `.env` with strict `0600` permissions.
-3. **🛡️ Built-in Neutralized Quarantine Vault**: Automatically scrambles infected binaries (XOR mask) and stores them under `/data/quarantine/` with permissions `0600`, supporting dual-mode restore (direct download / S3) and auto-whitelisting SHA-256 hashes.
+3. **🛡️ Built-in Neutralized Quarantine Vault**: Automatically encrypts infected binaries using authenticated **AES-256-GCM** with a constant 14-byte Magic Header (`VQF_AESGCM_V1\n`), strict `0600` permissions, dual-mode restore (direct download / S3), auto-whitelisting SHA-256 hashes, and memory bomb safeguards.
 4. **🚨 Multi-Channel Alerting & Flood Throttling**: Real-time notifications to Telegram Bot and Discord Webhooks with sliding-window flood protection (> 5 threats/min $\rightarrow$ batch digest).
 5. **🗄️ SQLite WAL Mode Persistence**: Transactional logging with auto-purging policies (3-day audit logs, 7-day quarantine retention) and streaming CSV/JSON exports.
 6. **💻 Embedded Web Admin UI (SPA)**: Zero-dependency responsive dark glassmorphism dashboard built with Vanilla JS & CSS, embedded directly inside the Go binary.
+7. **⚡ Daemon OOM Protection**: Optimized `clamd.conf` with `ConcurrentDatabaseReload no` preventing double memory consumption during database signature updates on low-spec VPS.
 
 ---
 
 ## 🐳 Docker Hub Image
 
 Image resmi tersedia di Docker Hub:  
-👉 [**`vickyfatrian/vqf-clamav-service:latest`**](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service) (atau tag rilis [**`v1.0.0`**](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service/tags))
+👉 [**`vickyfatrian/vqf-clamav-service:latest`**](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service) (atau tag rilis [**`v1.0.1`**](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service/tags) / `v1.0.0`)
 
 ### One-Liner Quick Run (Tanpa Clone Source Code):
 ```bash

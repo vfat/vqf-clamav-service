@@ -45,7 +45,7 @@
 
 ### 3.2. Quarantine Vault & Safe Isolation (`FEAT-07`, `FEAT-08`, `FEAT-09`)
 * File malware otomatis diisolasi ke `/data/quarantine/` dengan format nama netral `Q-YYYYMMDD-ULID.quarantine`.
-* File mengalami XOR binary scrambling dan disimpan dengan permission `0600`.
+* File dienkripsi secara kriptografis menggunakan **AES-256-GCM** dengan Magic Header `VQF_AESGCM_V1\n` dan izin berkas ketat `0600`. Dilengkapi *dual-reader fallback* otomatis untuk payload legacy XOR `0xA5` serta proteksi *anti-memory bomb* via `io.LimitReader`.
 * Restore file didukung via `POST /api/v1/quarantine/restore`, secara otomatis mendaftarkan hash SHA-256 ke tabel `whitelist_signatures`.
 * Background worker membersihkan log audit lama (> 3 hari) dan file karantina kadaluarsa (> 7 hari).
 

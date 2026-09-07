@@ -2,6 +2,8 @@ package api
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
@@ -9,9 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vfat/vqf-clamav-service/internal/alert"
 	"github.com/vfat/vqf-clamav-service/internal/clamd"
+	"github.com/vfat/vqf-clamav-service/internal/fetcher"
 	"github.com/vfat/vqf-clamav-service/internal/quarantine"
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
@@ -138,3 +142,186 @@ func TestHandler_ServeStaticWebUI(t *testing.T) {
 		t.Errorf("expected embedded CSS to contain 'CLAMAV-SERVICE'")
 	}
 }
+
+func TestHandler_ScanURL_SSRFBlocked(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	payload := map[string]string{
+		"url": "http://169.254.169.254/latest/meta-data",
+	}
+	bodyBytes, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scan/url", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400 Bad Request for SSRF target, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	errObj, ok := resp["error"].(map[string]interface{})
+	if !ok || errObj["code"] != "SSRF_ATTEMPT_BLOCKED" {
+		t.Errorf("expected error code SSRF_ATTEMPT_BLOCKED, got: %v", resp)
+	}
+}
+
+func TestHandler_ScanURL_InvalidPayload(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	// Invalid URL scheme
+	payload := map[string]string{
+		"url": "ftp://example.com/malware.exe",
+	}
+	bodyBytes, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scan/url", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for ftp:// scheme, got %d", w.Code)
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	errObj, _ := resp["error"].(map[string]interface{})
+	if errObj["code"] != "INVALID_REQUEST_PAYLOAD" {
+		t.Errorf("expected INVALID_REQUEST_PAYLOAD, got %v", errObj["code"])
+	}
+}
+
+func TestHandler_ScanURL_CleanAndChecksum(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := storage.NewDB(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	vault := quarantine.NewVault(filepath.Join(tmpDir, "vault"), db)
+	notifier := alert.NewNotifier(alert.Config{})
+	limiter := ratelimit.NewLimiter()
+	clamdClient := clamd.NewClient("unix", "/tmp/mock.sock")
+
+	fileContent := []byte("Safe content from remote S3 bucket")
+	hasher := sha256.New()
+	hasher.Write(fileContent)
+	expectedHash := hex.EncodeToString(hasher.Sum(nil))
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(fileContent)
+	}))
+	defer mockServer.Close()
+
+	safeFetcher := fetcher.NewSafeFetcher(fetcher.SafeFetcherConfig{
+		Timeout:                 5 * time.Second,
+		AllowLoopbackForTesting: true,
+	})
+
+	server := NewServer(ServerConfig{
+		DB:            db,
+		Vault:         vault,
+		Notifier:      notifier,
+		Limiter:       limiter,
+		Clamd:         clamdClient,
+		Fetcher:       safeFetcher,
+		MaxScanSizeMB: 100,
+	})
+
+	// Test with matching checksum
+	payload := map[string]string{
+		"url":             mockServer.URL + "/report.pdf",
+		"expected_sha256": expectedHash,
+	}
+	bodyBytes, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scan/url", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+
+	// Mock clamd returns 503 or 200
+	if w.Code != http.StatusOK && w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 200 or 503, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Test with MISMATCHING checksum -> must return 400 CHECKSUM_MISMATCH before reaching clamd
+	mismatchPayload := map[string]string{
+		"url":             mockServer.URL + "/report.pdf",
+		"expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+	}
+	mismatchBytes, _ := json.Marshal(mismatchPayload)
+	reqMismatch := httptest.NewRequest(http.MethodPost, "/api/v1/scan/url", bytes.NewReader(mismatchBytes))
+	reqMismatch.Header.Set("Content-Type", "application/json")
+	wMismatch := httptest.NewRecorder()
+
+	server.Router().ServeHTTP(wMismatch, reqMismatch)
+
+	if wMismatch.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for checksum mismatch, got %d. Body: %s", wMismatch.Code, wMismatch.Body.String())
+	}
+
+	var mismatchResp map[string]interface{}
+	_ = json.Unmarshal(wMismatch.Body.Bytes(), &mismatchResp)
+	errObj, _ := mismatchResp["error"].(map[string]interface{})
+	if errObj["code"] != "CHECKSUM_MISMATCH" {
+		t.Errorf("expected CHECKSUM_MISMATCH, got %v", errObj["code"])
+	}
+}
+
+func TestHandler_ScanURL_FileTooLarge(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, _ := storage.NewDB(filepath.Join(tmpDir, "test.db"))
+	defer db.Close()
+
+	vault := quarantine.NewVault(filepath.Join(tmpDir, "vault"), db)
+	notifier := alert.NewNotifier(alert.Config{})
+	limiter := ratelimit.NewLimiter()
+	clamdClient := clamd.NewClient("unix", "/tmp/mock.sock")
+
+	largeContent := make([]byte, 5000)
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(largeContent)
+	}))
+	defer mockServer.Close()
+
+	safeFetcher := fetcher.NewSafeFetcher(fetcher.SafeFetcherConfig{
+		Timeout:                 5 * time.Second,
+		MaxBytes:                1024, // 1KB limit
+		AllowLoopbackForTesting: true,
+	})
+
+	server := NewServer(ServerConfig{
+		DB:            db,
+		Vault:         vault,
+		Notifier:      notifier,
+		Limiter:       limiter,
+		Clamd:         clamdClient,
+		Fetcher:       safeFetcher,
+		MaxScanSizeMB: 1,
+	})
+
+	payload := map[string]string{
+		"url": mockServer.URL + "/large.bin",
+	}
+	bodyBytes, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scan/url", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected status 413 Payload Too Large, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+

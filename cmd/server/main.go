@@ -29,7 +29,7 @@ func main() {
 	envPath := getEnv("ENV_FILE", ".env")
 
 	// 1. Zero-Touch Master Key Generation
-	keyStr, _, created, err := crypto.EnsureMasterKey(envPath)
+	keyStr, masterKey, created, err := crypto.EnsureMasterKey(envPath)
 	if err != nil {
 		log.Fatalf("[SECURITY FATAL] Failed to ensure master encryption key: %v", err)
 	}
@@ -51,10 +51,10 @@ func main() {
 	defer db.Close()
 	log.Printf("[STORAGE] SQLite initialized at %s (WAL mode)", dbPath)
 
-	// 3. Quarantine Vault Initialization
+	// 3. Quarantine Vault Initialization (AES-256-GCM + Anti-Memory Bomb)
 	quarDir := getEnv("QUARANTINE_DIR", "/data/quarantine")
-	vault := quarantine.NewVault(quarDir, db)
-	log.Printf("[VAULT] Quarantine Vault initialized at %s", quarDir)
+	vault := quarantine.NewVault(quarDir, db, masterKey)
+	log.Printf("[VAULT] Quarantine Vault initialized at %s (AES-256-GCM Authenticated Encryption)", quarDir)
 
 	// 4. Alert Dispatcher Initialization
 	alertCfg := alert.Config{
@@ -96,6 +96,7 @@ func main() {
 
 	// 8. HTTP REST API Server
 	maxScanMB := int64(getEnvInt("MAX_SCAN_SIZE_MB", 100))
+	vault.SetMaxQuarantineBytes(maxScanMB * 1024 * 1024)
 	server := api.NewServer(api.ServerConfig{
 		DB:               db,
 		Vault:            vault,
