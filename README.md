@@ -17,21 +17,25 @@
 3. **🛡️ Built-in Neutralized Quarantine Vault**: Automatically encrypts infected binaries using authenticated **AES-256-GCM** with a constant 14-byte Magic Header (`VQF_AESGCM_V1\n`), strict `0600` permissions, dual-mode restore (direct download / S3), auto-whitelisting SHA-256 hashes, and memory bomb safeguards.
 4. **🚨 Multi-Channel Alerting & Flood Throttling**: Real-time notifications to Telegram Bot and Discord Webhooks with sliding-window flood protection (> 5 threats/min $\rightarrow$ batch digest).
 5. **🗄️ SQLite WAL Mode Persistence**: Transactional logging with auto-purging policies (3-day audit logs, 7-day quarantine retention) and streaming CSV/JSON exports.
-6. **💻 Embedded Web Admin UI (SPA)**: Zero-dependency responsive dark glassmorphism dashboard built with Vanilla JS & CSS, embedded directly inside the Go binary.
-7. **⚡ Daemon OOM Protection**: Optimized `clamd.conf` with `ConcurrentDatabaseReload no` preventing double memory consumption during database signature updates on low-spec VPS.
+6. **🚀 High-Performance gRPC Streaming**: Built-in protobuf streaming service (`Port 9090`) for zero-latency inter-service RPC communications with auth interceptors.
+7. **🌐 Anti-SSRF Remote URL Scanner**: Fetches remote payloads securely with DNS-rebinding guards and blocking of loopback, RFC1918, and Cloud metadata IPs (`169.254.169.254`).
+8. **📥 Asynchronous Worker Queue & Spool**: Non-blocking scanning (`202 Accepted`) with spool storage (`/data/spool`), concurrent worker pools, and automated webhook callbacks.
+9. **🛡️ Zero-Downtime Custom YARA Engine**: Dynamic hot-reloading of `.yara` threat signatures directly into ClamAV daemon via Unix socket commands without restarts.
+10. **💻 Embedded Web Admin UI (SPA)**: Zero-dependency responsive dark glassmorphism dashboard built with Vanilla JS & CSS, embedded directly inside the Go binary.
 
 ---
 
 ## 🐳 Docker Hub Image
 
-Image resmi tersedia di Docker Hub:  
-👉 [**`vickyfatrian/vqf-clamav-service:latest`**](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service) (atau tag rilis [**`v1.0.1`**](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service/tags) / `v1.0.0`)
+Official container images are available on Docker Hub:  
+👉 [**`vickyfatrian/vqf-clamav-service:latest`**](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service) (Release tag: [**`v1.1.0`**](https://hub.docker.com/r/vickyfatrian/vqf-clamav-service/tags))
 
-### One-Liner Quick Run (Tanpa Clone Source Code):
+### One-Liner Quick Run (Without cloning repository):
 ```bash
 docker run -d \
   --name clamav-service \
   -p 8080:8080 \
+  -p 9090:9090 \
   -v $(pwd)/data:/data \
   -v clamav_signatures:/var/lib/clamav \
   vickyfatrian/vqf-clamav-service:latest
@@ -54,7 +58,8 @@ docker compose up -d
 ```
 
 The service will boot:
-- **Web UI & REST API**: `http://localhost:8080`
+- **Web Admin UI & REST API**: `http://localhost:8080`
+- **gRPC Antivirus Scanner**: `localhost:9090`
 - **Health Check Probe**: `http://localhost:8080/api/v1/health`
 - **Prometheus Metrics**: `http://localhost:8080/api/v1/metrics`
 
@@ -85,42 +90,45 @@ curl -X POST http://localhost:8080/api/v1/scan/file \
   -F "file=@/path/to/invoice.pdf"
 ```
 
-**Response (Clean File):**
+### 2. Remote URL Scan (Protected with Anti-SSRF)
+```bash
+curl -X POST http://localhost:8080/api/v1/scan/url \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://secure-downloads.example.com/driver.bin",
+    "expected_sha256": "optional-hash-for-integrity-verification"
+  }'
+```
+
+### 3. Asynchronous Scan with Webhook Notification
+```bash
+curl -X POST http://localhost:8080/api/v1/scan/async \
+  -F "file=@/path/to/large_archive.zip" \
+  -F "callback_url=https://my-app.internal/webhooks/scan-verdict"
+```
+**Response (202 Accepted):**
 ```json
 {
   "success": true,
-  "verdict": "CLEAN",
-  "data": {
-    "file_name": "invoice.pdf",
-    "file_size": 2048576,
-    "file_sha256": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
-    "scan_duration_ms": 42,
-    "scanned_at": "2026-09-02T19:30:00Z"
-  }
+  "job_id": "0191c984-7a1b-7000-8800-123456789abc",
+  "status": "QUEUED",
+  "message": "Scan job enqueued successfully"
 }
 ```
 
-**Response (Malware Detected):**
-```json
-{
-  "success": true,
-  "verdict": "INFECTED",
-  "threat": {
-    "virus_name": "Win.Trojan.Agent-1234",
-    "severity": "HIGH",
-    "action_taken": "QUARANTINED",
-    "quarantine_id": "Q-20260902-8f92a10b"
-  },
-  "data": {
-    "file_name": "invoice.pdf.exe",
-    "file_size": 1048576,
-    "file_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "scan_duration_ms": 38
-  }
-}
+### 4. Deploy Custom YARA Threat Signature
+```bash
+curl -X POST http://localhost:8080/api/v1/rules/yara \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rule_name": "detect_webshell_php",
+    "author": "secops",
+    "description": "Detects PHP command execution injection",
+    "content": "rule detect_webshell_php {\n    strings:\n        $a = \"passthru($_GET[\x27cmd\x27])\"\n    condition:\n        $a\n}"
+  }'
 ```
 
-### 2. Restore Quarantined File & Whitelist Hash
+### 5. Restore Quarantined File & Whitelist Hash
 ```bash
 curl -X POST http://localhost:8080/api/v1/quarantine/restore \
   -H "Content-Type: application/json" \
@@ -134,10 +142,10 @@ curl -X POST http://localhost:8080/api/v1/quarantine/restore \
 
 ---
 
-## 🧪 Running Unit Tests (TDD Suite)
+## 🧪 Running Unit & Integration Tests (TDD Suite)
 
 ```bash
-go test -v ./...
+go test -v -count=1 ./...
 ```
 
 ---
@@ -149,9 +157,12 @@ Comprehensive technical documentation is maintained under [`.ai-doc/`](file:///.
 - 📐 [**C4 Component Diagrams**](file:///.ai-doc/C4-Component-Diagrams.md)
 - 📋 [**Feature Inventory Matrix**](file:///.ai-doc/Dokumentasi-Fitur.md)
 - 🧭 [**Grouped Use Case Documentation**](file:///.ai-doc/Dokumentasi-Komponen-Usecase.md)
-- 📜 [**REST API Endpoint List**](file:///.ai-doc/rest-api-doc/daftar-endpoint.md)
-- 📑 [**REST API Specification & Swimlanes**](file:///.ai-doc/rest-api-doc/)
-- 🎯 [**TDD Control Plane**](file:///.ai-doc/tdd-overview.md)
+- 🏗️ [**Design Component Documents (DCD-01 s/d DCD-04)**](file:///.ai-doc/desain-component-document/)
+- 🗄️ [**Database ERD & Data Dictionaries**](file:///.ai-doc/desain-database-document/ERD-overview.md)
+- 📜 [**REST API Endpoint Indeks**](file:///.ai-doc/rest-api-doc/daftar-endpoint.md)
+- 📑 [**REST API Specifications Suite (API-SPEC-01 s/d 17)**](file:///.ai-doc/rest-api-doc/)
+- 🖥️ [**Web UI Walkthrough Guide**](file:///.ai-doc/Web-UI-Walkthrough.md)
+- 🎯 [**TDD Control Plane (17/17 Targets GREEN)**](file:///.ai-doc/tdd-overview.md)
 - 📚 [**Lampiran Series (L-001 s/d L-006)**](file:///.ai-doc/lampiran/)
 
 ---
