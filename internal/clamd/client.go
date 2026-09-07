@@ -99,6 +99,30 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 	return strings.TrimSpace(resp), nil
 }
 
+// Reload triggers clamd to reload its signature databases.
+func (c *Client) Reload(ctx context.Context) error {
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to connect to clamd: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write([]byte("zRELOAD\x00")); err != nil {
+		return fmt.Errorf("failed to send RELOAD: %w", err)
+	}
+
+	resp, err := readUntilNull(conn)
+	if err != nil {
+		return fmt.Errorf("failed to read RELOAD response: %w", err)
+	}
+
+	if strings.Contains(resp, "ERROR") {
+		return fmt.Errorf("clamd reload error: %s", resp)
+	}
+
+	return nil
+}
+
 // ScanStream pipes an io.Reader stream directly to clamd using the INSTREAM protocol.
 func (c *Client) ScanStream(ctx context.Context, r io.Reader) (*ScanResult, error) {
 	conn, err := c.dial(ctx)

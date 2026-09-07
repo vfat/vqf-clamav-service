@@ -60,6 +60,9 @@ func handleMockConn(conn net.Conn) {
 	case strings.HasPrefix(cmd, "zVERSION") || strings.HasPrefix(cmd, "VERSION"):
 		conn.Write([]byte("ClamAV 1.4.0/27400/Wed Sep  2 17:00:00 2026\x00"))
 
+	case strings.HasPrefix(cmd, "zRELOAD") || strings.HasPrefix(cmd, "RELOAD"):
+		conn.Write([]byte("RELOADING\x00"))
+
 	case strings.HasPrefix(cmd, "zINSTREAM") || strings.HasPrefix(cmd, "nINSTREAM") || strings.HasPrefix(cmd, "INSTREAM"):
 		// Read chunks until 4-byte 0 length chunk
 		var payload bytes.Buffer
@@ -167,3 +170,21 @@ func TestClamdClient_ScanStream_Infected(t *testing.T) {
 		t.Errorf("expected virus name 'Eicar-Test-Signature', got '%s'", result.VirusName)
 	}
 }
+
+func TestClamdClient_Reload(t *testing.T) {
+	tmpDir := t.TempDir()
+	sockPath := filepath.Join(tmpDir, "mock_clamd.sock")
+
+	listener := mockClamdServer(t, sockPath)
+	defer listener.Close()
+
+	client := NewClient("unix", sockPath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := client.Reload(ctx); err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+}
+

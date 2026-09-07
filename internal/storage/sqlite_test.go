@@ -195,3 +195,64 @@ func TestSystemSettings_CRUD(t *testing.T) {
 		t.Errorf("expected updated value 'new_salt$new_hash', got '%s'", val)
 	}
 }
+
+func TestYARARules_CRUD(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_yara.db")
+
+	db, err := NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("failed to init DB: %v", err)
+	}
+	defer db.Close()
+
+	r := YARARule{
+		ID:          "rule-001",
+		RuleName:    "detect_test",
+		Description: "test rule description",
+		Content:     "rule detect_test { condition: true }",
+		Author:      "sec-analyst",
+		IsActive:    true,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+
+	if err := db.InsertYARARule(r); err != nil {
+		t.Fatalf("failed to insert YARA rule: %v", err)
+	}
+
+	// List rules
+	rules, err := db.ListYARARules()
+	if err != nil {
+		t.Fatalf("failed to list YARA rules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(rules))
+	}
+	if rules[0].RuleName != "detect_test" {
+		t.Errorf("expected ruleName 'detect_test', got '%s'", rules[0].RuleName)
+	}
+
+	// Get by ID
+	fetched, err := db.GetYARARule("rule-001")
+	if err != nil {
+		t.Fatalf("failed to get YARA rule: %v", err)
+	}
+	if fetched.ID != "rule-001" || fetched.Content != r.Content {
+		t.Errorf("fetched rule mismatch: %+v", fetched)
+	}
+
+	// Delete
+	if err := db.DeleteYARARule("rule-001"); err != nil {
+		t.Fatalf("failed to delete YARA rule: %v", err)
+	}
+
+	rulesAfter, err := db.ListYARARules()
+	if err != nil {
+		t.Fatalf("failed to list YARA rules after delete: %v", err)
+	}
+	if len(rulesAfter) != 0 {
+		t.Errorf("expected 0 rules after delete, got %d", len(rulesAfter))
+	}
+}
+

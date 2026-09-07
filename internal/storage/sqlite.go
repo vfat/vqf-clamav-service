@@ -58,6 +58,18 @@ type QuarantineRecord struct {
 	RestoreReason    string     `json:"restore_reason,omitempty"`
 }
 
+// YARARule represents a record in yara_rules.
+type YARARule struct {
+	ID          string    `json:"id"`
+	RuleName    string    `json:"rule_name"`
+	Description string    `json:"description"`
+	Content     string    `json:"content"`
+	Author      string    `json:"author"`
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // NewDB initializes SQLite connection with WAL mode and runs table migrations.
 func NewDB(dbPath string) (*DB, error) {
 	if dbPath == "" {
@@ -152,6 +164,18 @@ func (db *DB) migrate() error {
 		value_encrypted TEXT NOT NULL,
 		updated_at      DATETIME NOT NULL
 	);
+
+	CREATE TABLE IF NOT EXISTS yara_rules (
+		id          TEXT PRIMARY KEY,
+		rule_name   TEXT NOT NULL UNIQUE,
+		description TEXT,
+		content     TEXT NOT NULL,
+		author      TEXT,
+		is_active   INTEGER NOT NULL DEFAULT 1,
+		created_at  DATETIME NOT NULL,
+		updated_at  DATETIME NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_yara_active ON yara_rules(is_active);
 	`
 	_, err := db.conn.Exec(schema)
 	return err
@@ -488,6 +512,69 @@ func (db *DB) DeleteQuarantineRecord(id string) error {
 	_, err := db.conn.Exec("DELETE FROM quarantine_records WHERE id = ?", id)
 	return err
 }
+
+// InsertYARARule inserts a new YARA rule into SQLite.
+func (db *DB) InsertYARARule(r YARARule) error {
+	query := `
+	INSERT INTO yara_rules (id, rule_name, description, content, author, is_active, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	active := 0
+	if r.IsActive {
+		active = 1
+	}
+	_, err := db.conn.Exec(query, r.ID, r.RuleName, r.Description, r.Content, r.Author, active, r.CreatedAt.Format(time.RFC3339), r.UpdatedAt.Format(time.RFC3339))
+	return err
+}
+
+// ListYARARules retrieves all registered YARA rules.
+func (db *DB) ListYARARules() ([]YARARule, error) {
+	query := `SELECT id, rule_name, description, content, author, is_active, created_at, updated_at FROM yara_rules ORDER BY created_at DESC`
+	rows, err := db.conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rules []YARARule
+	for rows.Next() {
+		var r YARARule
+		var activeInt int
+		var createdStr, updatedStr string
+		if err := rows.Scan(&r.ID, &r.RuleName, &r.Description, &r.Content, &r.Author, &activeInt, &createdStr, &updatedStr); err != nil {
+			return nil, err
+		}
+		r.IsActive = activeInt == 1
+		r.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+		r.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
+		rules = append(rules, r)
+	}
+	return rules, nil
+}
+
+// GetYARARule retrieves a single YARA rule by its ID.
+func (db *DB) GetYARARule(id string) (*YARARule, error) {
+	query := `SELECT id, rule_name, description, content, author, is_active, created_at, updated_at FROM yara_rules WHERE id = ?`
+	row := db.conn.QueryRow(query, id)
+
+	var r YARARule
+	var activeInt int
+	var createdStr, updatedStr string
+	if err := row.Scan(&r.ID, &r.RuleName, &r.Description, &r.Content, &r.Author, &activeInt, &createdStr, &updatedStr); err != nil {
+		return nil, err
+	}
+	r.IsActive = activeInt == 1
+	r.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+	r.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
+	return &r, nil
+}
+
+// DeleteYARARule removes a YARA rule by ID.
+func (db *DB) DeleteYARARule(id string) error {
+	_, err := db.conn.Exec("DELETE FROM yara_rules WHERE id = ?", id)
+	return err
+}
+
 
 
 

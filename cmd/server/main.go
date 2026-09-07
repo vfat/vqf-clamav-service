@@ -21,7 +21,9 @@ import (
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
 	"github.com/vfat/vqf-clamav-service/internal/supervisor"
+	"github.com/vfat/vqf-clamav-service/internal/yara"
 )
+
 
 func main() {
 	fmt.Println("==================================================================")
@@ -96,7 +98,12 @@ func main() {
 	quarRetentionDays := getEnvInt("QUARANTINE_RETENTION_DAYS", 7)
 	startBackgroundCleaner(db, vault, logRetentionDays)
 
-	// 8. HTTP REST API Server
+	// 8. YARA Custom Signature Rule Injection Engine
+	yaraRulesDir := getEnv("YARA_RULES_DIR", "/var/lib/clamav/rules")
+	yaraMgr := yara.NewManager(yaraRulesDir, db, clamdClient)
+	log.Printf("[YARA] Custom Rules Engine targeting %s", yaraRulesDir)
+
+	// 9. HTTP REST API Server
 	maxScanMB := int64(getEnvInt("MAX_SCAN_SIZE_MB", 100))
 	vault.SetMaxQuarantineBytes(maxScanMB * 1024 * 1024)
 	server := api.NewServer(api.ServerConfig{
@@ -105,6 +112,7 @@ func main() {
 		Notifier:         notifier,
 		Limiter:          limiter,
 		Clamd:            clamdClient,
+		YARAManager:      yaraMgr,
 		RequireAPIKey:    getEnvBool("REQUIRE_API_KEY", false),
 		MaxScanSizeMB:    maxScanMB,
 		RateLimitRPM:     rateLimitRPM,
@@ -117,6 +125,7 @@ func main() {
 		BearerToken:      getEnv("AUTH_BEARER_TOKEN", ""),
 		UIPassword:       getEnv("UI_PASSWORD", "123456"),
 	})
+
 
 	port := getEnv("PORT", "8080")
 	addr := ":" + port

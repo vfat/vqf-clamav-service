@@ -8,7 +8,7 @@
 | **Storage Path** | `/data/clamav-service.db` (dapat dikonfigurasi via env `DB_PATH`) |
 | **Concurrency Mode** | WAL (*Write-Ahead Logging*) |
 | **Pragma Settings** | `journal_mode(WAL)`, `synchronous(NORMAL)`, `busy_timeout(5000)`, `foreign_keys(ON)` |
-| **Jumlah Tabel** | 5 Tabel (`scan_audit_logs`, `quarantine_records`, `whitelist_signatures`, `api_keys`, `system_settings`) |
+| **Jumlah Tabel** | 6 Tabel (`scan_audit_logs`, `quarantine_records`, `whitelist_signatures`, `api_keys`, `system_settings`, `yara_rules`) |
 | **Sumber Kode & Migrasi** | [`internal/storage/sqlite.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/storage/sqlite.go) |
 
 ---
@@ -79,6 +79,18 @@ entity "system_settings" as SETTINGS {
   *updated_at : DATETIME
 }
 
+entity "yara_rules" as YARA {
+  *id : TEXT <<PK>>
+  --
+  *rule_name : TEXT <<UK>>
+  description : TEXT
+  *content : TEXT
+  author : TEXT
+  *is_active : INTEGER
+  *created_at : DATETIME
+  *updated_at : DATETIME
+}
+
 ' Relasi Logical
 QUARANTINE ||..o{ AUDIT : "associated with (quarantine_id)"
 
@@ -102,6 +114,7 @@ QUARANTINE ||..o{ AUDIT : "associated with (quarantine_id)"
 * **`whitelist_signatures`**: Berdiri sendiri sebagai kamus hash SHA-256 berkas yang telah diverifikasi aman oleh Security Admin.
 * **`api_keys`**: Berdiri sendiri untuk memvalidasi kredensial autentikasi API consumer.
 * **`system_settings`**: Tabel konfigurasi key-value persisten terenkripsi (misalnya password dashboard UI ter-hash/enkripsi).
+* **`yara_rules`**: Tabel registrasi custom signature YARA berekstensi `.yara` yang dimuat secara zero-downtime oleh daemon ClamAV.
 
 ---
 
@@ -114,3 +127,5 @@ QUARANTINE ||..o{ AUDIT : "associated with (quarantine_id)"
 | `idx_audit_sha256` | `scan_audit_logs` | `file_sha256` | Mempercepat pelacakan histori pemindaian berdasarkan hash berkas. |
 | `idx_quar_status` | `quarantine_records` | `status` | Mempercepat filtering berkas di UI (`QUARANTINED`, `RESTORED`, `DELETED`). |
 | `idx_quar_expires` | `quarantine_records` | `expires_at` | Mempercepat *background worker* dalam mendeteksi dan menghapus berkas kedaluwarsa. |
+| `idx_yara_active` | `yara_rules` | `is_active` | Mempercepat query filtering aturan YARA aktif. |
+

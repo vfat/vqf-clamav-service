@@ -23,6 +23,7 @@ import (
 	"github.com/vfat/vqf-clamav-service/internal/quarantine"
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
+	"github.com/vfat/vqf-clamav-service/internal/yara"
 	"github.com/vfat/vqf-clamav-service/web"
 )
 
@@ -34,6 +35,7 @@ type ServerConfig struct {
 	Limiter          *ratelimit.Limiter
 	Clamd            *clamd.Client
 	Fetcher          *fetcher.SafeFetcher
+	YARAManager      *yara.Manager
 	RequireAPIKey    bool
 	MaxScanSizeMB    int64
 	RateLimitRPM     int
@@ -123,6 +125,12 @@ func (s *Server) routes() {
 
 	// Audit Logs
 	s.mux.HandleFunc("GET /api/v1/audit/export", s.handleAuditExport)
+
+	// YARA Custom Rules Management
+	s.mux.HandleFunc("POST /api/v1/rules/yara", s.handleYARAAdd)
+	s.mux.HandleFunc("GET /api/v1/rules/yara", s.handleYARAList)
+	s.mux.HandleFunc("DELETE /api/v1/rules/yara/{id}", s.handleYARADelete)
+	s.mux.HandleFunc("DELETE /api/v1/rules/yara", s.handleYARADelete)
 }
 
 func (s *Server) applyMiddlewares(h http.Handler) http.Handler {
@@ -866,5 +874,123 @@ func (s *Server) handleUIPassword(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "Dashboard password updated successfully",
+	})
+}
+
+func (s *Server) handleYARAAdd(w http.ResponseWriter, r *http.Request) {
+	if s.config.YARAManager == nil {
+		respondError(w, http.StatusServiceUnavailable, "YARA_NOT_AVAILABLE", "YARA rule injection engine is not configured", nil)
+		return
+	}
+
+	var req struct {
+		RuleName    string `json:"rule_name"`
+		Description string `json:"description"`
+		Content     string `json:"content"`
+		Author      string `json:"author"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Malformed JSON payload", nil)
+		return
+	}
+
+	req.RuleName = strings.TrimSpace(req.RuleName)
+	if req.RuleName == "" {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Field 'rule_name' is required", nil)
+		return
+	}
+
+	req.Content = strings.TrimSpace(req.Content)
+	if req.Content == "" {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Field 'content' is required", nil)
+		return
+	}
+
+	if req.Author == "" {
+		req.Author = extractConsumer(r)
+	}
+
+	rule, err := s.config.YARAManager.AddRule(r.Context(), req.RuleName, req.Description, req.Content, req.Author)
+	if err != nil {
+		errStr := err.Error()
+		if strings.Contains(errStr, "yara validation failed") || strings.Contains(errStr, "already exists") {
+			respondError(w, http.StatusBadRequest, "INVALID_YARA_RULE", errStr, nil)
+			return
+		}
+		if strings.Contains(errStr, "failed to reload clamd") {
+			respondError(w, http.StatusInternalServerError, "RELOAD_FAILED", "Failed to reload ClamAV with new rule: "+errStr, nil)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to save YARA rule: "+errStr, nil)
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, map[string]interface{}{
+		"success": true,
+		"message": "YARA rule deployed and ClamAV reloaded successfully",
+		"data":    rule,
+	})
+}
+
+func (s *Server) handleYARAList(w http.ResponseWriter, r *http.Request) {
+	if s.config.YARAManager == nil {
+		respondError(w, http.StatusServiceUnavailable, "YARA_NOT_AVAILABLE", "YARA rule injection engine is not configured", nil)
+		return
+	}
+
+	rules, err := s.config.YARAManager.ListRules(r.Context())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to list YARA rules: "+err.Error(), nil)
+		return
+	}
+
+	if rules == nil {
+		rules = []storage.YARARule{}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"total":   len(rules),
+		"items":   rules,
+	})
+}
+
+func (s *Server) handleYARADelete(w http.ResponseWriter, r *http.Request) {
+	if s.config.YARAManager == nil {
+		respondError(w, http.StatusServiceUnavailable, "YARA_NOT_AVAILABLE", "YARA rule injection engine is not configured", nil)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		id = r.URL.Query().Get("id")
+	}
+	if id == "" && r.Body != nil {
+		var body struct {
+			ID string `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		id = body.ID
+	}
+
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Missing rule id parameter", nil)
+		return
+	}
+
+	if err := s.config.YARAManager.DeleteRule(r.Context(), id); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			respondError(w, http.StatusNotFound, "RULE_NOT_FOUND", fmt.Sprintf("YARA rule with id '%s' not found", id), nil)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to delete YARA rule: "+err.Error(), nil)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "YARA rule removed and ClamAV reloaded successfully",
+		"rule_id": id,
 	})
 }

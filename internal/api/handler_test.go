@@ -19,7 +19,9 @@ import (
 	"github.com/vfat/vqf-clamav-service/internal/quarantine"
 	"github.com/vfat/vqf-clamav-service/internal/ratelimit"
 	"github.com/vfat/vqf-clamav-service/internal/storage"
+	"github.com/vfat/vqf-clamav-service/internal/yara"
 )
+
 
 func setupTestServer(t *testing.T) (*Server, *storage.DB) {
 	tmpDir := t.TempDir()
@@ -323,5 +325,111 @@ func TestHandler_ScanURL_FileTooLarge(t *testing.T) {
 		t.Fatalf("expected status 413 Payload Too Large, got %d. Body: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestHandler_YARARules_CRUD(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := storage.NewDB(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	rulesDir := filepath.Join(tmpDir, "yara_rules")
+	mockClamd := clamd.NewClient("unix", "/tmp/nonexistent.sock")
+	yaraMgr := yara.NewManager(rulesDir, db, nil)
+
+	server := NewServer(ServerConfig{
+		DB:          db,
+		YARAManager: yaraMgr,
+		Clamd:       mockClamd,
+	})
+
+	// 1. Add invalid YARA rule
+	invalidPayload := map[string]string{
+		"rule_name": "bad_rule",
+		"content":   "rule bad_rule { invalid }",
+	}
+	bodyBytes, _ := json.Marshal(invalidPayload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/yara", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for invalid YARA rule, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// 2. Add valid YARA rule
+	validPayload := map[string]string{
+		"rule_name":   "custom_webshell",
+		"description": "Detect webshell injection",
+		"content":     "rule custom_webshell { condition: true }",
+		"author":      "sec-admin",
+	}
+	bodyBytes, _ = json.Marshal(validPayload)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rules/yara", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected status 201 Created, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var createdResp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &createdResp)
+	ruleData, ok := createdResp["data"].(map[string]interface{})
+	if !ok || ruleData["id"] == "" {
+		t.Fatalf("expected created rule data with id, got %v", createdResp)
+	}
+	ruleID := ruleData["id"].(string)
+
+	// 3. List YARA rules
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/rules/yara", nil)
+	w = httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK, got %d", w.Code)
+	}
+
+	var listResp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &listResp)
+	items, ok := listResp["items"].([]interface{})
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected 1 item in list, got %v", listResp)
+	}
+
+	// 4. Delete YARA rule
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/rules/yara/"+ruleID, nil)
+	w = httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK on delete, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// 5. Delete non-existent rule
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/rules/yara/nonexistent-id", nil)
+	w = httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404 for non-existent rule, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// 6. List after delete should be empty
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/rules/yara", nil)
+	w = httptest.NewRecorder()
+
+	server.Router().ServeHTTP(w, req)
+	var emptyListResp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &emptyListResp)
+	emptyItems, _ := emptyListResp["items"].([]interface{})
+	if len(emptyItems) != 0 {
+		t.Errorf("expected 0 items after delete, got %d", len(emptyItems))
+	}
+}
+
 
 

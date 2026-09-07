@@ -47,6 +47,15 @@ Setiap endpoint memiliki dokumen spesifikasi teknis detail tersendiri di dalam f
 | `GET` | `/healthz` | Kubernetes lightweight liveness/readiness probe (Selalu public / bypass auth). | `Published` | [API-SPEC-10](./API-SPEC-10-GET-+healthz.md) |
 | `GET` | `/api/v1/metrics` | Endpoint Prometheus metrics (`text/plain; version=0.0.4`). | `Published` | [API-SPEC-11](./API-SPEC-11-GET-+api+v1+metrics.md) |
 
+### 2.6. Komponen YARA Custom Signature Management
+
+| Method | Endpoint | Description | Status | Spesifikasi Teknis |
+|---|---|---|---|---|
+| `POST` | `/api/v1/rules/yara` | Validasi, injeksi berkas `.yara`, simpan metadata, dan reload hot-reload clamd. | `Published` | [API-SPEC-14](./API-SPEC-14-POST-+api+v1+rules+yara.md) |
+| `GET` | `/api/v1/rules/yara` | Mengambil seluruh daftar aturan deteksi YARA kustom yang aktif. | `Published` | [API-SPEC-15](./API-SPEC-15-GET-+api+v1+rules+yara.md) |
+| `DELETE` | `/api/v1/rules/yara/{id}` | Menghapus aturan dari disk & SQLite, lalu memicu hot-reload clamd. | `Published` | [API-SPEC-16](./API-SPEC-16-DELETE-+api+v1+rules+yara.md) |
+
+
 ---
 
 ## 3. Catatan Validitas

@@ -18,7 +18,7 @@
 |---|---|---|---|---|---|
 | **FEAT-01** | Core Synchronous File Scan | Scanning | ✅ **ACTIVE** | `api.Server`, `clamd.Client` | [`internal/api/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/server.go#L108-L230), [`internal/api/handler_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/handler_test.go) |
 | **FEAT-02** | Raw Binary Chunked Stream Scan | Scanning | ✅ **ACTIVE** | `api.Server`, `clamd.Client` | [`internal/clamd/client.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/clamd/client.go#L104-L162), [`internal/clamd/client_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/clamd/client_test.go) |
-| **FEAT-03** | Remote URL / Cloud Object Scan | Scanning | ⏳ `PLANNED` | `api.Server`, `clamd.Client` | Backlog enhancement |
+| **FEAT-03** | Remote URL / Cloud Object Scan | Scanning | ✅ **ACTIVE** | `fetcher.SafeFetcher`, `api.Server` | [`internal/fetcher/client.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/fetcher/client.go), [`internal/api/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/server.go) |
 | **FEAT-04** | Async Scan Job & Webhook Callback | Async Queue | ⏳ `PLANNED` | `api.Server`, `alert.Notifier` | Backlog enhancement |
 | **FEAT-05** | Password-Protected Archive Inspection | Resilience | ✅ **ACTIVE** | `scanner.ArchiveInspector` | [`internal/scanner/archive.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/scanner/archive.go), [`internal/scanner/archive_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/scanner/archive_test.go) |
 | **FEAT-06** | Zip-Bomb & Decompression Limiter | Resilience | ✅ **ACTIVE** | `scanner.ArchiveInspector` | [`internal/scanner/archive.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/scanner/archive.go#L44-L89), [`internal/scanner/archive_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/scanner/archive_test.go) |
@@ -33,6 +33,9 @@
 | **FEAT-15** | Streaming Audit Log Exporter (CSV/JSON) | Compliance | ✅ **ACTIVE** | `api.Server`, `storage.DB` | [`internal/api/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/server.go#L248-L253), [`internal/storage/sqlite.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/storage/sqlite.go#L149-L208) |
 | **FEAT-16** | Go Native Process Supervisor (PID 1) | Operations | ✅ **ACTIVE** | `cmd/server/main.go` | [`cmd/server/main.go`](file:///home/ubuntu/workspace/plan/clamav-service/cmd/server/main.go#L101-L117) |
 | **FEAT-17** | Health & Readiness Probe / Metrics | Observability | ✅ **ACTIVE** | `api.Server` | [`internal/api/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/server.go#L95-L106) |
+| **FEAT-18** | High-Throughput gRPC Streaming Scanner | Ingress | ✅ **ACTIVE** | `grpcserver.Server` | [`internal/grpcserver/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/grpcserver/server.go), [`internal/grpcserver/server_test.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/grpcserver/server_test.go) |
+| **FEAT-19** | YARA Custom Threat Signature Engine | Intelligence | ✅ **ACTIVE** | `yara.Manager`, `api.Server` | [`internal/yara/manager.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/yara/manager.go), [`internal/api/server.go`](file:///home/ubuntu/workspace/plan/clamav-service/internal/api/server.go) |
+
 
 ---
 
