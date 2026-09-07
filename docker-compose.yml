@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-${PORT:-8080}}:${PORT:-8080}"
+      - "${GRPC_PORT:-9090}:9090"
     env_file:
       - .env
     volumes:

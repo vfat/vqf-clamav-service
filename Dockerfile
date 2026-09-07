@@ -1,7 +1,7 @@
 # ==============================================================================
 # STAGE 1: Build Go Binary
 # ==============================================================================
-FROM golang:1.22-alpine AS builder
+FROM golang:alpine AS builder
 
 WORKDIR /build
 
@@ -32,7 +32,7 @@ RUN apk add --no-cache \
     tzdata
 
 # Create directory structure and set ownership
-RUN mkdir -p /app /data /data/quarantine /var/run/clamav /var/log/clamav /var/lib/clamav && \
+RUN mkdir -p /app /data /data/quarantine /data/spool /var/lib/clamav/rules /var/run/clamav /var/log/clamav /var/lib/clamav && \
     chown -R clamav:clamav /var/run/clamav /var/log/clamav /var/lib/clamav /data
 
 # Copy custom ClamAV configs
@@ -42,8 +42,8 @@ COPY configs/freshclam.conf /etc/clamav/freshclam.conf
 # Copy compiled binary from builder stage
 COPY --from=builder /build/clamav-service /app/clamav-service
 
-# Expose HTTP API & Web UI port
-EXPOSE 8080
+# Expose HTTP API & Web UI port (8080) and gRPC Scanner port (9090)
+EXPOSE 8080 9090
 
 # Persistent volume for SQLite DB & Quarantine Vault
 VOLUME ["/data"]

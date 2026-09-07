@@ -110,7 +110,7 @@ func (s *Supervisor) runFreshclam(confPath string) {
 		}
 
 		log.Printf("[SUPERVISOR] Starting freshclam daemon updater with config %s...", confPath)
-		cmd := exec.Command("freshclam", "-d", "-c", confPath)
+		cmd := exec.Command("freshclam", "-d", "--config-file="+confPath)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		s.freshclamCmd = cmd
