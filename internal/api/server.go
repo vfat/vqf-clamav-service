@@ -119,6 +119,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/scan/url", s.handleScanURL)
 	s.mux.HandleFunc("POST /api/v1/scan/async", s.handleScanAsync)
 	s.mux.HandleFunc("GET /api/v1/scan/jobs/{id}", s.handleScanJobStatus)
+	s.mux.HandleFunc("GET /api/v1/scan/jobs", s.handleScanJobList)
 
 	// Quarantine
 	s.mux.HandleFunc("GET /api/v1/quarantine", s.handleQuarantineList)
@@ -1090,4 +1091,40 @@ func (s *Server) handleScanJobStatus(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
+
+func (s *Server) handleScanJobList(w http.ResponseWriter, r *http.Request) {
+	if s.config.DB == nil {
+		respondError(w, http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE", "Database not configured", nil)
+		return
+	}
+
+	limit := 50
+	offset := 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if val, err := strconv.Atoi(l); err == nil && val > 0 {
+			limit = val
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if val, err := strconv.Atoi(o); err == nil && val >= 0 {
+			offset = val
+		}
+	}
+
+	jobs, total, err := s.config.DB.ListScanJobs(limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to query scan jobs: "+err.Error(), nil)
+		return
+	}
+	if jobs == nil {
+		jobs = []storage.ScanJob{}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"total":   total,
+		"items":   jobs,
+	})
+}
+
 

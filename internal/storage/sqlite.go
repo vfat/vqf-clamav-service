@@ -649,6 +649,51 @@ func (db *DB) UpdateScanJobStatus(id, status, verdict, virusName, errorMsg, sha2
 	return err
 }
 
+// ListScanJobs retrieves scan jobs ordered by created_at DESC with pagination.
+func (db *DB) ListScanJobs(limit, offset int) ([]ScanJob, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var total int
+	_ = db.conn.QueryRow("SELECT COUNT(*) FROM scan_jobs").Scan(&total)
+
+	query := `
+	SELECT id, file_name, file_size, file_sha256, callback_url, consumer, status, verdict, virus_name, error_msg, created_at, updated_at
+	FROM scan_jobs
+	ORDER BY created_at DESC
+	LIMIT ? OFFSET ?
+	`
+	rows, err := db.conn.Query(query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var jobs []ScanJob
+	for rows.Next() {
+		var j ScanJob
+		var sha, consumer, verdict, virusName, errorMsg sql.NullString
+		var createdStr, updatedStr string
+		if err := rows.Scan(&j.ID, &j.FileName, &j.FileSize, &sha, &j.CallbackURL, &consumer, &j.Status, &verdict, &virusName, &errorMsg, &createdStr, &updatedStr); err != nil {
+			return nil, 0, err
+		}
+		j.FileSHA256 = sha.String
+		j.Consumer = consumer.String
+		j.Verdict = verdict.String
+		j.VirusName = virusName.String
+		j.ErrorMsg = errorMsg.String
+		j.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+		j.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
+		jobs = append(jobs, j)
+	}
+	return jobs, total, nil
+}
+
+
 
 
 

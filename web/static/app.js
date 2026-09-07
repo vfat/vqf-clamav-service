@@ -8,6 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initScanner();
   initTelemetry();
   initEicarGenerator();
+  initYARAManager();
+  initAsyncScanManager();
 });
 
 /* ------------------------------------------------------------------------------
@@ -23,6 +25,8 @@ function initTabs() {
     dashboard: { title: "System Overview", sub: "Real-time threat monitoring and antivirus throughput metrics" },
     scanner: { title: "Live Scan Lab", sub: "Interactive drag-and-drop file inspection with instant threat verdicts" },
     quarantine: { title: "Quarantine Vault", sub: "Inspect and restore isolated malware files with automatic hash whitelisting" },
+    yara: { title: "Custom YARA Rules", sub: "Threat hunting signatures with hot-reload validation and zero-downtime deployment" },
+    asyncjobs: { title: "Async Scan Queue", sub: "Non-blocking background scan jobs, spool storage, and webhook delivery status" },
     audit: { title: "Audit Logs", sub: "Transactional compliance trails with streaming CSV/JSON export" },
     apikeys: { title: "API Authentication", sub: "Integration tokens and API keys for consumer microservices" },
   };
@@ -44,6 +48,8 @@ function initTabs() {
       }
 
       if (tabId === "quarantine") loadQuarantineTable();
+      if (tabId === "yara") loadYARATable();
+      if (tabId === "asyncjobs") loadJobsTable();
       if (tabId === "audit") loadAuditTable();
     });
   });
@@ -539,4 +545,341 @@ function initUIAuth() {
     });
   }
 }
+
+/* ------------------------------------------------------------------------------
+   7. Custom YARA Rules Management
+   ------------------------------------------------------------------------------ */
+let currentYARARules = [];
+
+function initYARAManager() {
+  const openModalBtn = document.getElementById("btn-open-deploy-yara");
+  const deployModal = document.getElementById("modal-deploy-yara");
+  const closeModalBtn = document.getElementById("btn-close-yara-modal");
+  const cancelModalBtn = document.getElementById("btn-cancel-deploy-yara");
+  const form = document.getElementById("form-deploy-yara");
+
+  const nameInput = document.getElementById("yara-input-name");
+  const authorInput = document.getElementById("yara-input-author");
+  const descInput = document.getElementById("yara-input-desc");
+  const contentInput = document.getElementById("yara-input-content");
+  const errorBox = document.getElementById("yara-deploy-error");
+  const successBox = document.getElementById("yara-deploy-success");
+  const submitBtn = document.getElementById("btn-submit-deploy-yara");
+
+  // View modal elements
+  const viewModal = document.getElementById("modal-view-yara");
+  const closeViewBtn = document.getElementById("btn-close-view-yara");
+  const dismissViewBtn = document.getElementById("btn-dismiss-view-yara");
+
+  const hideDeployModal = () => {
+    if (deployModal) deployModal.style.display = "none";
+  };
+  const hideViewModal = () => {
+    if (viewModal) viewModal.style.display = "none";
+  };
+
+  if (openModalBtn && deployModal) {
+    openModalBtn.addEventListener("click", () => {
+      if (errorBox) errorBox.style.display = "none";
+      if (successBox) successBox.style.display = "none";
+      if (form) form.reset();
+      deployModal.style.display = "flex";
+    });
+  }
+
+  if (closeModalBtn) closeModalBtn.addEventListener("click", hideDeployModal);
+  if (cancelModalBtn) cancelModalBtn.addEventListener("click", hideDeployModal);
+  if (closeViewBtn) closeViewBtn.addEventListener("click", hideViewModal);
+  if (dismissViewBtn) dismissViewBtn.addEventListener("click", hideViewModal);
+
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (errorBox) errorBox.style.display = "none";
+      if (successBox) successBox.style.display = "none";
+
+      const ruleName = nameInput.value.trim();
+      const author = authorInput.value.trim();
+      const desc = descInput.value.trim();
+      const content = contentInput.value.trim();
+
+      if (!ruleName || !content) {
+        if (errorBox) {
+          errorBox.textContent = "Rule name and YARA rule definition are required.";
+          errorBox.style.display = "block";
+        }
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Validating & Reloading...";
+      }
+
+      try {
+        const res = await fetch("/api/v1/rules/yara", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rule_name: ruleName,
+            author: author,
+            description: desc,
+            content: content
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (successBox) {
+            successBox.textContent = "YARA rule deployed & ClamAV reloaded successfully!";
+            successBox.style.display = "block";
+          }
+          setTimeout(() => {
+            hideDeployModal();
+            loadYARATable();
+          }, 800);
+        } else {
+          if (errorBox) {
+            errorBox.textContent = data.error?.message || "Failed to deploy YARA rule.";
+            errorBox.style.display = "block";
+          }
+        }
+      } catch (err) {
+        if (errorBox) {
+          errorBox.textContent = "Network error: " + err.message;
+          errorBox.style.display = "block";
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Deploy & Reload ClamAV";
+        }
+      }
+    });
+  }
+
+  // Initial load
+  loadYARATable();
+}
+
+async function loadYARATable() {
+  const tbody = document.getElementById("yara-table-body");
+  const badge = document.getElementById("yara-badge");
+  if (!tbody) return;
+
+  try {
+    const res = await fetch("/api/v1/rules/yara");
+    const data = await res.json();
+
+    if (!data.success || !data.rules || data.rules.length === 0) {
+      currentYARARules = [];
+      if (badge) badge.textContent = "0";
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align:center;padding:2.5rem;color:var(--text-muted);">
+            No custom YARA rules deployed yet. Click "Deploy New Rule" to add custom signatures.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    currentYARARules = data.rules;
+    if (badge) badge.textContent = data.rules.length;
+
+    tbody.innerHTML = data.rules.map((rule, idx) => {
+      const createdStr = rule.created_at ? new Date(rule.created_at).toLocaleString() : "—";
+      return `
+        <tr>
+          <td class="font-mono text-amber font-bold">${rule.name || rule.id}</td>
+          <td>${rule.description || "—"}</td>
+          <td class="font-mono text-dim">${rule.author || "system"}</td>
+          <td class="font-mono text-dim" style="font-size:0.8rem;">${createdStr}</td>
+          <td>
+            <button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;" onclick="viewYARARule(${idx})">View</button>
+            <button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:rgba(239,68,68,0.15);color:var(--red-glowing);border-color:rgba(239,68,68,0.3);margin-left:0.3rem;" onclick="deleteYARARule('${rule.id}', '${rule.name}')">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  } catch (err) {
+    console.warn("YARA rules load error:", err);
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--red);">Failed to load YARA rules</td></tr>`;
+  }
+}
+
+window.viewYARARule = function(idx) {
+  const rule = currentYARARules[idx];
+  if (!rule) return;
+
+  const viewModal = document.getElementById("modal-view-yara");
+  const titleEl = document.getElementById("view-yara-title");
+  const contentEl = document.getElementById("view-yara-content");
+
+  if (titleEl) titleEl.textContent = `YARA Rule: ${rule.name}`;
+  if (contentEl) contentEl.textContent = rule.content || "// No content available";
+  if (viewModal) viewModal.style.display = "flex";
+};
+
+window.deleteYARARule = async function(id, name) {
+  if (confirm(`Permanently delete custom YARA rule "${name || id}"?\n\nThis will remove the file from disk and reload ClamAV without this rule.`)) {
+    try {
+      const res = await fetch(`/api/v1/rules/yara/${encodeURIComponent(id)}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        loadYARATable();
+      } else {
+        alert("Failed to delete rule: " + (data.error?.message || "unknown error"));
+      }
+    } catch (err) {
+      alert("Delete request error: " + err.message);
+    }
+  }
+};
+
+/* ------------------------------------------------------------------------------
+   8. Async Scan Jobs Queue & Monitoring
+   ------------------------------------------------------------------------------ */
+function initAsyncScanManager() {
+  const form = document.getElementById("form-async-scan");
+  const fileInput = document.getElementById("async-file-input");
+  const urlInput = document.getElementById("async-callback-url");
+  const submitBtn = document.getElementById("btn-submit-async");
+  const msgBox = document.getElementById("async-submit-msg");
+  const refreshBtn = document.getElementById("btn-refresh-jobs");
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => loadJobsTable());
+  }
+
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!fileInput.files || fileInput.files.length === 0) {
+        alert("Please select a file to enqueue.");
+        return;
+      }
+      const callbackUrl = urlInput.value.trim();
+      if (!callbackUrl) {
+        alert("Please provide a valid webhook callback URL.");
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("callback_url", callbackUrl);
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Enqueueing Scan Job...";
+      }
+      if (msgBox) msgBox.style.display = "none";
+
+      try {
+        const res = await fetch("/api/v1/scan/async", {
+          method: "POST",
+          headers: {
+            "X-Consumer-Name": "Web-Admin-Dashboard"
+          },
+          body: formData
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (msgBox) {
+            msgBox.style.display = "block";
+            msgBox.style.color = "var(--emerald-glowing)";
+            msgBox.textContent = `Enqueued successfully! Job ID: ${data.job_id} (${data.status}). Worker pool is processing...`;
+          }
+          form.reset();
+          loadJobsTable();
+        } else {
+          if (msgBox) {
+            msgBox.style.display = "block";
+            msgBox.style.color = "var(--red-glowing)";
+            msgBox.textContent = data.error?.message || "Failed to enqueue async scan job.";
+          }
+        }
+      } catch (err) {
+        if (msgBox) {
+          msgBox.style.display = "block";
+          msgBox.style.color = "var(--red-glowing)";
+          msgBox.textContent = "Network error: " + err.message;
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Enqueue Scan Job (202)";
+        }
+      }
+    });
+  }
+
+  // Auto-refresh jobs table every 5s if async tab is active
+  setInterval(() => {
+    const asyncTab = document.getElementById("tab-asyncjobs");
+    if (asyncTab && asyncTab.classList.contains("active")) {
+      loadJobsTable();
+    }
+  }, 5000);
+}
+
+async function loadJobsTable() {
+  const tbody = document.getElementById("jobs-table-body");
+  if (!tbody) return;
+
+  try {
+    const res = await fetch("/api/v1/scan/jobs?limit=50");
+    const data = await res.json();
+
+    if (!data.success || !data.items || data.items.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align:center;padding:2.5rem;color:var(--text-muted);">
+            No background scan jobs enqueued yet. Submit a file above to test asynchronous queueing.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = data.items.map(job => {
+      let statusClass = "queued";
+      if (job.status === "COMPLETED") statusClass = "completed";
+      else if (job.status === "PROCESSING") statusClass = "processing";
+      else if (job.status === "FAILED") statusClass = "failed";
+
+      const statusBadge = `<span class="badge-status ${statusClass}">${job.status}</span>`;
+
+      let verdictEl = `<span class="text-dim">—</span>`;
+      if (job.verdict === "CLEAN") {
+        verdictEl = `<span class="text-emerald font-bold">CLEAN</span>`;
+      } else if (job.verdict === "INFECTED") {
+        verdictEl = `<span class="text-red font-bold">${job.virus_name || "MALWARE"}</span>`;
+      } else if (job.status === "FAILED") {
+        verdictEl = `<span class="text-red" title="${job.error_msg || ''}">ERROR</span>`;
+      }
+
+      const createdStr = job.created_at ? new Date(job.created_at).toLocaleTimeString() : "—";
+      const sizeStr = formatBytes(job.file_size || 0);
+
+      return `
+        <tr>
+          <td class="font-mono text-dim" style="font-size:0.75rem;" title="${job.id}">${job.id.substring(0, 8)}...</td>
+          <td class="font-mono">${job.file_name || "unknown"}</td>
+          <td>${sizeStr}</td>
+          <td>${statusBadge}</td>
+          <td>${verdictEl}</td>
+          <td class="font-mono text-dim" style="font-size:0.8rem;">${createdStr}</td>
+        </tr>
+      `;
+    }).join("");
+  } catch (err) {
+    console.warn("Scan jobs load error:", err);
+  }
+}
+
 
